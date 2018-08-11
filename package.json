@@ -19,6 +19,7 @@
   "homepage": "https://github.com/WhipeeDip/Quote-Discord-Bot#readme",
   "dependencies": {
     "discord.js": "^11.4.0",
-    "dotenv": "^6.0.0"
+    "dotenv": "^6.0.0",
+    "mongodb": "^3.1.1"
   }
 }

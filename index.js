@@ -29,4 +29,5 @@ client.login(process.env.DISCORD_TOKEN);
 // log the logged in account
 client.on('ready', () => {
   console.log(util.format(CON_LOGGED_IN, client.user.username, client.user.discriminator, client.user.id));
+  const quote_bot = require('./quote_bot.js')(client);
 });
