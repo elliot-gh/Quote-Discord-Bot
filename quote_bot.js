@@ -10,14 +10,16 @@ const util = require('util');
 
 // require() this and pass in the discord.js logged in client
 module.exports = function(discordClient) {
-  const CONSOLE_ERR_MONGODB_ENV = 'One or more .env MongoDB settings are not set!';
-  const CONSOLE_ERR_MONGODB_CONNECT = 'Error connecting to MongoDB: ';
-  const CONSOLE_ERR_DB = 'MongoDB connection not ready.';
+  const CON_ERR_DB_ENV = 'One or more .env MongoDB settings are not set!';
+  const CON_ERR_DB_CONNECT = 'Error connecting to MongoDB: ';
+  const CON_ERR_DB = 'MongoDB connection not ready.';
 
   const CMD_FORMAT_TITLE = 'Invalid command format.';
   const CMD_FORMAT_DESC = 'The correct command format is %s';
-  const QUOTE_ERR_UNKNOWN = 'An unknown error occurred: %s';
+  const CMD_ERR_UNKNOWN = 'An unknown error occurred: %s';
   const QUOTE_NOT_FOUND_DESC = 'Quote with name `%s` was not found.';
+  const CMD_ERROR_TITLE = 'Error';
+  const CMD_DB_NOT_READY = 'The MongoDB connection is not yet ready. Please wait a few more seconds.';
 
   const CMD_HELP = '!help';
   const HELP_TITLE = 'Help';
@@ -30,17 +32,19 @@ module.exports = function(discordClient) {
   const CMD_QUOTE_LIST = '!quotelist';
   const QUOTE_LIST_ERR = 'Quote list could not be retrieved.';
   const QUOTE_LIST_NONE = 'There are no quotes for this server.';
-  const QUOTE_LIST_ENTRY = '• `%s`\n';
   const QUOTE_LIST_HEADER = 'Page %d of %d';
+  const QUOTE_LIST_ENTRY = '• `%s`\n';
   const QUOTE_LIST_MAX_ENTRIES = 10;
-  const QUOTE_LIST_HELP = '`!quotelist [name]`';
-  const QUOTE_LIST_TIMEOUT = 20000; // 20 seconds
+  const QUOTE_LIST_HELP = '`!quotelist`';
+  const QUOTE_LIST_TIMEOUT = 15000; // 15 seconds
   const LEFT_EMOJI = '⬅';
   const RIGHT_EMOJI = '➡';
 
   const CMD_QUOTE_ADD = '!quoteadd ';
   const QUOTE_ADD_NAME_MAX_CHARS = 100;
   const QUOTE_ADD_NAME_MAX_CHARS_DESC = 'Please keep quote names under %d characters.';
+  const QUOTE_ADD_QUOTE_MAX_CHARS = 1500;
+  const QUOTE_ADD_QUOTE_MAX_CHARS_DESC = 'Please keep quotes under %d characters.';
   const QUOTE_ADD_TITLE = 'Quote was added.';
   const QUOTE_ADD_DESC = 'Quote with name `%s` was added.';
   const QUOTE_ADD_ERR = 'Quote could not be added.';
@@ -63,29 +67,40 @@ module.exports = function(discordClient) {
   let mongoDb = undefined;
 
   /**
-   * Gets a quote.
+   * Gets a quote, and optionally sends it to a channel as well..
    *
-   * @param {Discord.Guild} guild - A discord.js guild/server this command came from.
-   * @param {Discord.TextChannel} channel - A discord.js text Channel this command came from.
+   * @param {Discord.TextChannel} channel - A discord.js text channel this command came from.
    *                                        Pass in null to skip sending the message and just return.
+   * @param {Discord.Guild} guild - A discord.js guild that the quote belongs to.
    * @param {string} name - Name of the quote.
    *
    * @returns {string} The quote. null if the quote doesn't exist.
    */
-  const quoteGet = async function(guild, channel, name) {
+  const quoteGet = async function(channel, guild, name) {
+    // make sure MongoDB connection is ready
     if (mongoDb === undefined) {
-      console.error(CONSOLE_ERR_DB);
+      console.error(CON_ERR_DB);
+      if (channel !== null) {
+        channel.send('', {
+          embed: {
+            title: CMD_ERROR_TITLE,
+            description: CMD_DB_NOT_READY,
+            color: COLOR_ERR
+          }
+        });
+      }
       return null;
     }
 
+    // attempt to find and send quote
     let guildId = guild.id;
-    let collection = mongoDb.collection(guildId);
-
     try {
+      let collection = mongoDb.collection(guildId);
       let result = await collection.findOne({
         name: name
       });
 
+      // no results returns null
       let quote;
       if (result === null) {
         quote = null;
@@ -107,20 +122,22 @@ module.exports = function(discordClient) {
           //     description: quote,
           //     color: COLOR_CMD
           //   }
-          // }); FIXME: embeds with previews
-          channel.send(util.format('`%s`\n%s', util.format(QUOTE_GET_TITLE, name), quote));
+          // }); // TODO: embeds with previews
+          channel.send(util.format('```%s```\n%s', util.format(QUOTE_GET_TITLE, name), quote));
         }
       }
       return quote;
     } catch (findError) {
       console.error(findError);
-      channel.send('', {
-        embed: {
-          title: QUOTE_GET_ERROR,
-          description: util.format(QUOTE_ERR_UNKNOWN, findError.message),
-          color: COLOR_ERR
-        }
-      });
+      if (channel !== null) {
+        channel.send('', {
+          embed: {
+            title: QUOTE_GET_ERROR,
+            description: util.format(CMD_ERR_UNKNOWN, findError.message),
+            color: COLOR_ERR
+          }
+        });
+      }
       return null;
     }
   };
@@ -128,59 +145,80 @@ module.exports = function(discordClient) {
   /**
    * Lists all the quotes of the server.
    *
-   * @param {Discord.Guild} guild - A discord.js guild/server this command came from.
    * @param {Discord.TextChannel} channel - A discord.js text Channel this command came from.
    *
    * @returns {number} Number of quotes in this server.
    */
-  const quoteList = async function(guild, channel) {
+  const quoteList = async function(channel) {
+    // make sure MongoDB connection is ready
     if (mongoDb === undefined) {
-      console.error(CONSOLE_ERR_DB);
-      return 0;
-    }
-
-    let guildId = guild.id;
-    let collection = mongoDb.collection(guildId);
-    let quotes = await collection.find({}).toArray();
-    if (quotes.length === 0) {
+      console.error(CON_ERR_DB);
       channel.send('', {
         embed: {
-          title: QUOTE_LIST_ERR,
-          description: QUOTE_LIST_NONE,
+          title: CMD_ERROR_TITLE,
+          description: CMD_DB_NOT_READY,
           color: COLOR_ERR
         }
       });
       return 0;
-    } else {
-      let pages = [];
-      let pageCount = Math.ceil(quotes.length / QUOTE_LIST_MAX_ENTRIES);
-      for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
-        let page = '';
+    }
 
-        for (let quoteIndex = pageIndex * QUOTE_LIST_MAX_ENTRIES; quoteIndex < (pageIndex + 1) * QUOTE_LIST_MAX_ENTRIES; quoteIndex++) {
-          if (quotes[quoteIndex] === undefined) {
-            break;
+    // try and get all quotes
+    let guildId = channel.guild.id;
+    try {
+      let collection = mongoDb.collection(guildId);
+      let cursor = await collection.find({});
+      let quotes = await cursor.sort('name', 1).toArray(); // sort by name
+      cursor.close();
+
+      // no quotes on this server
+      if (quotes.length === 0) {
+        channel.send('', {
+          embed: {
+            title: QUOTE_LIST_ERR,
+            description: QUOTE_LIST_NONE,
+            color: COLOR_ERR
           }
-
-          page += util.format(QUOTE_LIST_ENTRY, quotes[quoteIndex].name);
+        });
+        return 0;
+      } else {
+        // calculate pages needed and iterate through all quotes, filling up pages
+        let pages = [];
+        let pageCount = Math.ceil(quotes.length / QUOTE_LIST_MAX_ENTRIES);
+        for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
+          let page = '';
+          for (let quoteIndex = pageIndex * QUOTE_LIST_MAX_ENTRIES; quoteIndex < (pageIndex + 1) * QUOTE_LIST_MAX_ENTRIES; quoteIndex++) {
+            if (quotes[quoteIndex] === undefined) {
+              break;
+            }
+            page += util.format(QUOTE_LIST_ENTRY, quotes[quoteIndex].name);
+          }
+          pages[pageIndex] = page;
         }
 
-        pages[pageIndex] = page;
-      }
+        // start at first page, send, and let the interaction function deal with it
+        let currentIndex = 0;
+        let header = util.format(QUOTE_LIST_HEADER, (currentIndex + 1), pageCount);
+        let desc = pages[currentIndex];
+        let initMessage = await channel.send('', {
+          embed: {
+            title: header,
+            description: desc,
+            color: COLOR_CMD
+          }
+        });
+        quoteListInteraction(initMessage, pages, currentIndex);
 
-      let currentIndex = 0;
-      let header = util.format(QUOTE_LIST_HEADER, (currentIndex + 1), pageCount);
-      let desc = pages[currentIndex];
-      let initMessage = await channel.send('', {
+        return quotes.length;
+      }
+    } catch (error) {
+      channel.send('', {
         embed: {
-          title: header,
-          description: desc,
-          color: COLOR_CMD
+          title: QUOTE_LIST_ERR,
+          description: util.format(CMD_ERR_UNKNOWN, error.message),
+          color: COLOR_ERR
         }
       });
-      quoteListInteraction(initMessage, pages, currentIndex);
-
-      return quotes.length;
     }
   };
 
@@ -194,37 +232,51 @@ module.exports = function(discordClient) {
   const quoteListInteraction = async function(message, pages, currentIndex) {
     let maxIndex = pages.length - 1;
     let filter;
-    if (currentIndex === 0) {
-      if (maxIndex > 0) {
+
+    try {
+      // create filter and reactions based on page position (first, regular, last)
+      if (currentIndex === 0) {
+        // first page, but only create reactions if there's more than one page
+        if (maxIndex > 0) {
+          message.react(RIGHT_EMOJI);
+          filter = (reaction, user) => {
+            return reaction.emoji.name === RIGHT_EMOJI && user.id !== discordClient.user.id;
+          };
+        } else {
+          filter = (reaction, user) => false;
+        }
+      } else if (currentIndex === maxIndex) {
+        // last page
+        message.react(LEFT_EMOJI);
+        filter = (reaction, user) => {
+          return reaction.emoji.name === LEFT_EMOJI && user.id !== discordClient.user.id;
+        };
+      } else {
+        await message.react(LEFT_EMOJI);
         message.react(RIGHT_EMOJI);
         filter = (reaction, user) => {
-          return reaction.emoji.name === RIGHT_EMOJI && user.id !== discordClient.user.id;
+          return (reaction.emoji.name === LEFT_EMOJI || reaction.emoji.name === RIGHT_EMOJI) && user.id !== discordClient.user.id;
         };
       }
-    } else if (currentIndex === maxIndex) {
-      message.react(LEFT_EMOJI);
-      filter = (reaction, user) => {
-        return reaction.emoji.name === LEFT_EMOJI && user.id !== discordClient.user.id;
-      };
-    } else {
-      message.react(LEFT_EMOJI)
-        .then(() => message.react(RIGHT_EMOJI));
-      filter = (reaction, user) => {
-        return (reaction.emoji.name === LEFT_EMOJI || reaction.emoji.name === RIGHT_EMOJI) && user.id !== discordClient.user.id;
-      };
+    } catch (error) {
+      console.error(error);
+      return;
     }
 
+    // discord.js reaction collector for this message
     let collector = message.createReactionCollector(filter, {
-      time: QUOTE_LIST_TIMEOUT,
-      max: 1
+      max: 1 // only collect 1 reaction - don't want to handle potential user spam
     });
 
+    // node timer for listener timeout; not using discord.js's reaction collector
     let timeout = setTimeout(() => {
       collector.stop();
       message.clearReactions();
     }, QUOTE_LIST_TIMEOUT);
 
-
+    // collect event emitted with filter, switch pages
+    // TODO: when discord.js stable recieves 'remove' events, handle removes and collects
+    //       so it's not as choppy to constantly clear repopulate
     collector.on('collect', async (reaction) => {
       let newIndex;
       let emoji = reaction.emoji.name;
@@ -236,14 +288,23 @@ module.exports = function(discordClient) {
 
       let newHeader = util.format(QUOTE_LIST_HEADER, (newIndex + 1), pages.length);
       let newDesc = pages[newIndex];
-      let editedMessage = await message.edit('', {
-        embed: {
-          title: newHeader,
-          description: newDesc,
-          color: COLOR_CMD
-        }
-      });
+      let editedMessage;
+      try {
+        editedMessage = await message.edit('', {
+          embed: {
+            title: newHeader,
+            description: newDesc,
+            color: COLOR_CMD
+          }
+        });
+      } catch (error) {
+        clearTimeout(timeout);
+        collector.stop();
+        console.error(error);
+        return;
+      }
 
+      // unlisten since we're refreshing the interaction
       clearTimeout(timeout);
       collector.stop();
       await editedMessage.clearReactions();
@@ -254,14 +315,27 @@ module.exports = function(discordClient) {
   /**
    * Adds a quote.
    *
-   * @param {Discord.Guild} guild - A discord.js guild/server this command came from.
    * @param {Discord.TextChannel} channel - A discord.js text Channel this command came from.
    * @param {string} name - Name of the quote.
    * @param {string} content - Content of the quote.
    *
    * @returns {boolean} True if quote was added, false if not.
    */
-  const quoteAdd = async function(guild, channel, name, content) {
+  const quoteAdd = async function(channel, name, content) {
+    // make sure MongoDB connection is ready
+    if (mongoDb === undefined) {
+      console.error(CON_ERR_DB);
+      channel.send('', {
+        embed: {
+          title: CMD_ERROR_TITLE,
+          description: CMD_DB_NOT_READY,
+          color: COLOR_ERR
+        }
+      });
+      return false;
+    }
+
+    // if one of them are empty, then the command was malformed
     if (name === '' || content === '') {
       channel.send('', {
         embed: {
@@ -273,6 +347,7 @@ module.exports = function(discordClient) {
       return false;
     }
 
+    // some char limits in place to prevent discord's 2000 char limit causing issues
     if (name.length > QUOTE_ADD_NAME_MAX_CHARS) {
       channel.send('', {
         embed: {
@@ -282,28 +357,34 @@ module.exports = function(discordClient) {
         }
       });
       return false;
-    }
-
-    if (mongoDb === undefined) {
-      console.error(CONSOLE_ERR_DB);
-      return false;
-    }
-
-    let existingQuote = await quoteGet(guild, null, name);
-    if (existingQuote !== null) {
+    } else if (content.length > QUOTE_ADD_QUOTE_MAX_CHARS) {
       channel.send('', {
         embed: {
           title: QUOTE_ADD_ERR,
-          description: util.format(QUOTE_ADD_EXISTS_DESC, name),
+          description: util.format(QUOTE_ADD_QUOTE_MAX_CHARS_DESC, QUOTE_ADD_QUOTE_MAX_CHARS),
           color: COLOR_ERR
         }
       });
       return false;
     }
 
-    let guildId = guild.id;
-    let collection = mongoDb.collection(guildId);
+    // add quote
+    let guildId = channel.guild.id;
     try {
+      // check for existing quote, no duplicate names
+      let existingQuote = await quoteGet(null, channel.guild, name);
+      if (existingQuote !== null) {
+        channel.send('', {
+          embed: {
+            title: QUOTE_ADD_ERR,
+            description: util.format(QUOTE_ADD_EXISTS_DESC, name),
+            color: COLOR_ERR
+          }
+        });
+        return false;
+      }
+
+      let collection = mongoDb.collection(guildId);
       let result = await collection.insertOne({
         name: name,
         quote: content
@@ -316,11 +397,11 @@ module.exports = function(discordClient) {
         }
       });
       return true;
-    } catch (insError) {
-      console.error(insError);
+    } catch (error) {
+      console.error(error);
       channel.send('', {
         title: QUOTE_ADD_ERR,
-        description: util.format(QUOTE_ERR_UNKNOWN, insError.message),
+        description: util.format(CMD_ERR_UNKNOWN, error.message),
         color: COLOR_ERR
       });
       return false;
@@ -330,25 +411,34 @@ module.exports = function(discordClient) {
   /**
    * Removes a quote.
    *
-   * @param {Discord.Guild} guild - A discord.js guild/server this command came from.
    * @param {Discord.TextChannel} channel - A discord.js text Channel this command came from.
    * @param {string} name - Name of the quote to remove.
    *
    * @returns {boolean} True if a quote was removed, false if not.
    */
-  const quoteRemove = async function(guild, channel, name) {
+  const quoteRemove = async function(channel, name) {
+    // make sure MongoDB connection is ready
     if (mongoDb === undefined) {
-      console.error(CONSOLE_ERR_DB);
+      console.error(CON_ERR_DB);
+      channel.send('', {
+        embed: {
+          title: CMD_ERROR_TITLE,
+          description: CMD_DB_NOT_READY,
+          color: COLOR_ERR
+        }
+      });
       return false;
     }
 
-    let guildId = guild.id;
-    let collection = mongoDb.collection(guildId);
+    // delete quote
+    let guildId = channel.guild.id;
     try {
+      let collection = mongoDb.collection(guildId);
       let result = await collection.deleteOne({
         name: name
       });
 
+      // nothing deleted, quote never existed
       if (result.deletedCount === 0) {
         channel.send('', {
           embed: {
@@ -368,12 +458,12 @@ module.exports = function(discordClient) {
         });
         return true;
       }
-    } catch (delError) {
-      console.error(delError);
+    } catch (error) {
+      console.error(error);
       channel.send('', {
         embed: {
           title: QUOTE_RM_ERR,
-          description: util.format(QUOTE_ERR_UNKNOWN, delError.message),
+          description: util.format(CMD_ERR_UNKNOWN, error.message),
           color: COLOR_ERR
         }
       });
@@ -387,10 +477,14 @@ module.exports = function(discordClient) {
    * @param {Discord.TextChannel} channel - A discord.js text Channel this command came from.
    */
   const quoteHelp = function(channel) {
+    // send all this bot's available commands
     channel.send('', {
       embed: {
         title: HELP_TITLE,
-        description: QUOTE_GET_HELP + '\n' + QUOTE_LIST_HELP + '\n' + QUOTE_ADD_HELP + '\n' + QUOTE_RM_HELP,
+        description: QUOTE_GET_HELP + '\n' +
+                     QUOTE_LIST_HELP + '\n' +
+                     QUOTE_ADD_HELP + '\n' +
+                     QUOTE_RM_HELP,
         color: COLOR_CMD
       }
     });
@@ -398,7 +492,6 @@ module.exports = function(discordClient) {
 
   discordClient.on('message', async (msg) => {
     let msgContent = msg.content;
-    let guild = msg.guild;
     let channel = msg.channel;
 
     if (msgContent.startsWith(CMD_QUOTE)) {
@@ -407,40 +500,44 @@ module.exports = function(discordClient) {
       if (spaceIndex !== -1) {
         name = name.substring(0, spaceIndex);
       }
-      quoteGet(guild, channel, name);
+      quoteGet(channel, channel.guild, name);
+
     } else if (msgContent.startsWith(CMD_QUOTE_LIST)) {
-      quoteList(guild, channel);
+      quoteList(channel);
+
     } else if (msgContent.startsWith(CMD_QUOTE_ADD)) {
       let nameAndContent = msgContent.substring(CMD_QUOTE_ADD.length);
       let contentIndex = nameAndContent.indexOf(NAME_CONTENT_DELIMITER);
       let name = nameAndContent.substring(0, contentIndex);
       let content = nameAndContent.substring(contentIndex + 1);
-      quoteAdd(guild, channel, name, content);
+      quoteAdd(channel, name, content);
+
     } else if (msgContent.startsWith(CMD_QUOTE_REMOVE)) {
       let name = msgContent.substring(CMD_QUOTE_REMOVE.length);
-      quoteRemove(guild, channel, name);
+      quoteRemove(channel, name);
+
     } else if (msgContent.startsWith(CMD_HELP)) {
       quoteHelp(channel);
     }
   });
 
   // inits bot and database
-  (function init() {
+  (() => {
     const url = process.env.MONGODB_URL;
     const name = process.env.MONGODB_NAME;
     const user = process.env.MONGODB_USER;
     const password = process.env.MONGODB_PASSWORD;
 
     if (url === undefined || name === undefined || user === undefined || password === undefined) {
-      throw new Error(CONSOLE_ERR_MONGODB_ENV);
+      throw new Error(CON_ERR_DB_ENV);
     }
 
     const urlFormat = 'mongodb://%s:%s@' + url;
-    const fullUrl = util.format(urlFormat, user, password);
+    const fullUrl = util.format(urlFormat, encodeURIComponent(user), encodeURIComponent(password));
 
     MongoClient.connect(fullUrl, { useNewUrlParser: true }, (error, client) => {
       if (error !== null) {
-        throw new Error(CONSOLE_ERR_MONGODB_CONNECT + error.message);
+        throw new Error(CON_ERR_DB_CONNECT + error.message);
       }
 
       console.log('Connected to MongoDB: ', url);

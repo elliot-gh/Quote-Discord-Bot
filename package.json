@@ -1,11 +1,10 @@
 {
   "name": "quote-discord-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "A Discord bot built on discord.js that adds custom quotes stored on MongoDB.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
   "repository": {
     "type": "git",
@@ -20,6 +19,7 @@
   "dependencies": {
     "discord.js": "^11.4.0",
     "dotenv": "^6.0.0",
+    "eslint": "^5.3.0",
     "mongodb": "^3.1.1"
   }
 }
