@@ -28,6 +28,8 @@ module.exports = function(discordClient) {
   const QUOTE_GET_TITLE = '%s';
   const QUOTE_GET_ERROR = 'Quote could not be found.';
   const QUOTE_GET_HELP = '`!quote [name]`';
+  const QUOTE_NAME_MAX_CHARS = 100;
+  const QUOTE_NAME_MAX_CHARS_DESC = 'Please keep quote names under %d characters.';
 
   const CMD_QUOTE_LIST = '!quotelist';
   const QUOTE_LIST_ERR = 'Quote list could not be retrieved.';
@@ -41,8 +43,6 @@ module.exports = function(discordClient) {
   const RIGHT_EMOJI = '➡';
 
   const CMD_QUOTE_ADD = '!quoteadd ';
-  const QUOTE_ADD_NAME_MAX_CHARS = 100;
-  const QUOTE_ADD_NAME_MAX_CHARS_DESC = 'Please keep quote names under %d characters.';
   const QUOTE_ADD_QUOTE_MAX_CHARS = 1500;
   const QUOTE_ADD_QUOTE_MAX_CHARS_DESC = 'Please keep quotes under %d characters.';
   const QUOTE_ADD_TITLE = 'Quote was added.';
@@ -65,9 +65,10 @@ module.exports = function(discordClient) {
 
   let mongoClient = undefined;
   let mongoDb = undefined;
+  let noPrefixQuote;
 
   /**
-   * Gets a quote, and optionally sends it to a channel as well..
+   * Gets a quote, and optionally sends it to a channel as well.
    *
    * @param {Discord.TextChannel} channel - A discord.js text channel this command came from.
    *                                        Pass in null to skip sending the message and just return.
@@ -85,6 +86,20 @@ module.exports = function(discordClient) {
           embed: {
             title: CMD_ERROR_TITLE,
             description: CMD_DB_NOT_READY,
+            color: COLOR_ERR
+          }
+        });
+      }
+      return null;
+    }
+
+    if (name.length > QUOTE_NAME_MAX_CHARS) {
+      console.error(util.format(QUOTE_NAME_MAX_CHARS_DESC, QUOTE_NAME_MAX_CHARS));
+      if (channel !== null) {
+        channel.send('', {
+          embed: {
+            title: CMD_ERROR_TITLE,
+            description: util.format(QUOTE_NAME_MAX_CHARS_DESC, QUOTE_NAME_MAX_CHARS),
             color: COLOR_ERR
           }
         });
@@ -139,6 +154,30 @@ module.exports = function(discordClient) {
         });
       }
       return null;
+    }
+  };
+
+  /**
+   * Used to get a quote when no prefix is enabled.
+   *
+   * @param {Discord.TextChannel} channel - A discord.js text channel this command came from.
+   *                                        Pass in null to skip sending the message and just return.
+   * @param {Discord.Guild} guild - A discord.js guild that the quote belongs to.
+   * @param {string} name - Name of the quote.
+   *
+   * @returns {string} The quote. null if the quote doesn't exist.
+   */
+  const quoteGetNoPrefix = async function(channel, guild, name) {
+    let quote = await quoteGet(null, guild, name);
+    if (quote !== null) {
+      // channel.send('', {
+      //   embed: {
+      //     title: util.format(QUOTE_GET_TITLE, name),
+      //     description: quote,
+      //     color: COLOR_CMD
+      //   }
+      // }); // TODO: embeds with previews
+      channel.send(util.format('```%s```\n%s', util.format(QUOTE_GET_TITLE, name), quote));
     }
   };
 
@@ -348,11 +387,11 @@ module.exports = function(discordClient) {
     }
 
     // some char limits in place to prevent discord's 2000 char limit causing issues
-    if (name.length > QUOTE_ADD_NAME_MAX_CHARS) {
+    if (name.length > QUOTE_NAME_MAX_CHARS) {
       channel.send('', {
         embed: {
           title: QUOTE_ADD_ERR,
-          description: util.format(QUOTE_ADD_NAME_MAX_CHARS_DESC, QUOTE_ADD_NAME_MAX_CHARS),
+          description: util.format(QUOTE_NAME_MAX_CHARS_DESC, QUOTE_NAME_MAX_CHARS),
           color: COLOR_ERR
         }
       });
@@ -494,7 +533,9 @@ module.exports = function(discordClient) {
     let msgContent = msg.content;
     let channel = msg.channel;
 
-    if (msgContent.startsWith(CMD_QUOTE)) {
+    if (noPrefixQuote && !msgContent.includes(' ')) {
+      quoteGetNoPrefix(channel, channel.guild, msgContent);
+    } else if (msgContent.startsWith(CMD_QUOTE)) {
       let name = msgContent.substring(CMD_QUOTE.length);
       let spaceIndex = name.indexOf(' ');
       if (spaceIndex !== -1) {
@@ -527,9 +568,16 @@ module.exports = function(discordClient) {
     const name = process.env.MONGODB_NAME;
     const user = process.env.MONGODB_USER;
     const password = process.env.MONGODB_PASSWORD;
+    const noPrefix = process.env.QUOTE_GET_NO_PREFIX;
 
-    if (url === undefined || name === undefined || user === undefined || password === undefined) {
+    if (url === undefined || name === undefined || user === undefined || password === undefined ||
+        noPrefix === undefined) {
       throw new Error(CON_ERR_DB_ENV);
+    } else {
+      noPrefixQuote = JSON.parse(noPrefix.toLowerCase());
+      if (typeof noPrefixQuote !== 'boolean') {
+        throw new Error(CON_ERR_DB_ENV);
+      }
     }
 
     const urlFormat = 'mongodb://%s:%s@' + url;
@@ -543,15 +591,6 @@ module.exports = function(discordClient) {
       console.log('Connected to MongoDB: ', url);
       mongoClient = client;
       mongoDb = mongoClient.db(name);
-    });
-
-    // init
-    discordClient.user.setPresence({
-      status: 'online',
-      afk: false,
-      game: {
-        name: '!help'
-      }
     });
   })();
 };

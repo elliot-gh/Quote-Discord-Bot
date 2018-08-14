@@ -5,7 +5,6 @@ A Discord bot built on [discord.js](https://discord.js.org/) that adds custom qu
 ## Planned Features
 
 * Require a certain role/permission in the server to use certain commands.
-* Maybe optionally remove the `!quote` requirement so that the bot responds to single word messages with matching names.
 
 ## Setup
 
@@ -29,6 +28,7 @@ Comments starting with the pound sign `#` are ignored.
 * `MONGODB_NAME`: Your MongoDB database name.
 * `MONGODB_USER`: Your MongoDB username.
 * `MONGODB_PASSWORD`: Your MongoDB password.
+* `QUOTE_GET_NO_PREFIX`: `true` to enable, `false` to disable. Allows one word quotes to be interpreted as an implicit `!quote` command. Any errors will not be sent to the Discord channel to reduce possible spam from non-quote messages.
 
 ## Known Bugs
 
