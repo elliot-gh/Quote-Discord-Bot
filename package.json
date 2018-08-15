@@ -1,6 +1,6 @@
 {
   "name": "quote-discord-bot",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A Discord bot built on discord.js that adds custom quotes stored on MongoDB.",
   "main": "index.js",
   "scripts": {

@@ -533,9 +533,7 @@ module.exports = function(discordClient) {
     let msgContent = msg.content;
     let channel = msg.channel;
 
-    if (noPrefixQuote && !msgContent.includes(' ')) {
-      quoteGetNoPrefix(channel, channel.guild, msgContent);
-    } else if (msgContent.startsWith(CMD_QUOTE)) {
+    if (msgContent.startsWith(CMD_QUOTE)) {
       let name = msgContent.substring(CMD_QUOTE.length);
       let spaceIndex = name.indexOf(' ');
       if (spaceIndex !== -1) {
@@ -559,6 +557,8 @@ module.exports = function(discordClient) {
 
     } else if (msgContent.startsWith(CMD_HELP)) {
       quoteHelp(channel);
+    } else if (noPrefixQuote && !msgContent.includes(' ')) {
+      quoteGetNoPrefix(channel, channel.guild, msgContent);
     }
   });
 
