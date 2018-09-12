@@ -38,7 +38,6 @@ module.exports = function(discordClient) {
   const QUOTE_LIST_ENTRY = '• `%s`\n';
   const QUOTE_LIST_MAX_ENTRIES = 10;
   const QUOTE_LIST_HELP = '`!quotelist`';
-  const QUOTE_LIST_TIMEOUT = 15000; // 15 seconds
   const LEFT_EMOJI = '⬅';
   const RIGHT_EMOJI = '➡';
 
@@ -65,6 +64,7 @@ module.exports = function(discordClient) {
 
   let mongoClient = undefined;
   let mongoDb = undefined;
+  let quoteListTimeout = 30000;
   let noPrefixQuote;
 
   /**
@@ -311,7 +311,7 @@ module.exports = function(discordClient) {
     let timeout = setTimeout(() => {
       collector.stop();
       message.clearReactions();
-    }, QUOTE_LIST_TIMEOUT);
+    }, quoteListTimeout);
 
     // collect event emitted with filter, switch pages
     // TODO: when discord.js stable recieves 'remove' events, handle removes and collects
@@ -569,6 +569,7 @@ module.exports = function(discordClient) {
     const user = process.env.MONGODB_USER;
     const password = process.env.MONGODB_PASSWORD;
     const noPrefix = process.env.QUOTE_GET_NO_PREFIX;
+    const timeout = process.env.QUOTE_LIST_TIMEOUT;
 
     if (url === undefined || name === undefined || user === undefined || password === undefined ||
         noPrefix === undefined) {
@@ -578,6 +579,10 @@ module.exports = function(discordClient) {
       if (typeof noPrefixQuote !== 'boolean') {
         throw new Error(CON_ERR_DB_ENV);
       }
+    }
+
+    if (timeout !== undefined) {
+      quoteListTimeout = timeout;
     }
 
     const urlFormat = 'mongodb://%s:%s@' + url;

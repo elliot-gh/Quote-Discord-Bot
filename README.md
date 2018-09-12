@@ -29,6 +29,7 @@ Comments starting with the pound sign `#` are ignored.
 * `MONGODB_USER`: Your MongoDB username.
 * `MONGODB_PASSWORD`: Your MongoDB password.
 * `QUOTE_GET_NO_PREFIX`: `true` to enable, `false` to disable. Allows one word quotes to be interpreted as an implicit `!quote` command. Any errors will not be sent to the Discord channel to reduce possible spam from non-quote messages.
+* `QUOTE_LIST_TIMEOUT`: The amount of milliseconds before the `!quotelist` command stops listening to interactions. Defaults to `30000` if not specified (30 seconds).
 
 ## Known Bugs
 
