@@ -66,6 +66,7 @@ module.exports = function(discordClient) {
   let mongoDb = undefined;
   let quoteListTimeout = 30000;
   let noPrefixQuote;
+  let caseSens = false;
 
   /**
    * Gets a quote, and optionally sends it to a channel as well.
@@ -108,12 +109,24 @@ module.exports = function(discordClient) {
     }
 
     // attempt to find and send quote
+    let queryObj;
+    if (caseSens) {
+      queryObj = {
+        'name': name
+      };
+    } else {
+      queryObj = {
+        'name': {
+          '$regex': `^${name}$`,
+          '$options': 'i'
+        }
+      };
+    }
+
     let guildId = guild.id;
     try {
       let collection = mongoDb.collection(guildId);
-      let result = await collection.findOne({
-        name: name
-      });
+      let result = await collection.findOne(queryObj);
 
       // no results returns null
       let quote;
@@ -470,12 +483,24 @@ module.exports = function(discordClient) {
     }
 
     // delete quote
+    let queryObj;
+    if (caseSens) {
+      queryObj = {
+        'name': name
+      };
+    } else {
+      queryObj = {
+        'name': {
+          '$regex': `^${name}$`,
+          '$options': 'i'
+        }
+      };
+    }
+
     let guildId = channel.guild.id;
     try {
       let collection = mongoDb.collection(guildId);
-      let result = await collection.deleteOne({
-        name: name
-      });
+      let result = await collection.deleteOne(queryObj);
 
       // nothing deleted, quote never existed
       if (result.deletedCount === 0) {
@@ -570,6 +595,7 @@ module.exports = function(discordClient) {
     const password = process.env.MONGODB_PASSWORD;
     const noPrefix = process.env.QUOTE_GET_NO_PREFIX;
     const timeout = process.env.QUOTE_LIST_TIMEOUT;
+    const quoteCase = process.env.QUOTE_CASE_SENS;
 
     if (url === undefined || name === undefined || user === undefined || password === undefined ||
         noPrefix === undefined) {
@@ -582,7 +608,11 @@ module.exports = function(discordClient) {
     }
 
     if (timeout !== undefined) {
-      quoteListTimeout = timeout;
+      quoteListTimeout = parseInt(timeout);
+    }
+
+    if (quoteCase !== undefined) {
+      caseSens = JSON.parse(quoteCase.toLowerCase());
     }
 
     const urlFormat = 'mongodb://%s:%s@' + url;
