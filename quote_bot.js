@@ -117,7 +117,7 @@ module.exports = function(discordClient) {
     } else {
       queryObj = {
         'name': {
-          '$regex': `^${name}$`,
+          '$regex': `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
           '$options': 'i'
         }
       };
@@ -491,7 +491,7 @@ module.exports = function(discordClient) {
     } else {
       queryObj = {
         'name': {
-          '$regex': `^${name}$`,
+          '$regex': `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
           '$options': 'i'
         }
       };
