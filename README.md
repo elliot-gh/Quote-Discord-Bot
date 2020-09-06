@@ -11,13 +11,13 @@ A Discord bot built on [discord.js](https://discord.js.org/) that adds custom qu
 1. Create a MongoDB database. I use [mLab](https://mlab.com/).
 2. Install [Node.js](https://nodejs.org/). This has been developed and tested on v9.7.1 and v10.8.0 on Windows and Ubuntu, but should work on any platform that Node.js runs on.
 3. Pull or download this repository.
-4. Create environment variables or fill in the .env file with your information. Check the [.env Configuration](#env-configuration) section for more details.
+4. Create environment variables or create a `.env` file with your information. Check the [.env Configuration](#env-configuration) section for more details.
 5. In a terminal in the directory of the extracted folder, simply start the bot with `npm start`.
 6. To stop the bot at any time, press `Ctrl+C` in the terminal window.
 
 ## .env Configuration
 
-This bot supports either system environment variables or using the `.env` file.
+This bot supports either system environment variables or using the `.env` file. Rename `example.env` to `.env`.
 System environment variables will be used over the `.env` file.
 
 To use the `.env` file, simply type the value indicated after the equals sign in the `.env` file.
