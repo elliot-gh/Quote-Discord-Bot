@@ -626,9 +626,7 @@ module.exports = function(discordClient) {
       repeatName = JSON.parse(repeatNameConst.toLowerCase());
     }
 
-    const urlFormat = 'mongodb://%s:%s@' + url;
-    const fullUrl = util.format(urlFormat, encodeURIComponent(user), encodeURIComponent(password));
-
+    const fullUrl = util.format(url, encodeURIComponent(user), encodeURIComponent(password));
     MongoClient.connect(fullUrl, { useNewUrlParser: true, useUnifiedTopology: true }, (error, client) => {
       if (error !== null) {
         throw new Error(CON_ERR_DB_CONNECT + error.message);
