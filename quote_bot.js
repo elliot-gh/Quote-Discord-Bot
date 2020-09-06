@@ -3,7 +3,6 @@
  * Description: Responsible for quote mechanics.
  */
 
-const Discord = require('discord.js');
 const mongodb = require('mongodb');
 const MongoClient = mongodb.MongoClient;
 const util = require('util');
@@ -67,6 +66,7 @@ module.exports = function(discordClient) {
   let quoteListTimeout = 30000;
   let noPrefixQuote;
   let caseSens = false;
+  let repeatName = false;
 
   /**
    * Gets a quote, and optionally sends it to a channel as well.
@@ -117,7 +117,7 @@ module.exports = function(discordClient) {
     } else {
       queryObj = {
         'name': {
-          '$regex': `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+          '$regex': sanitizeRegex(name),
           '$options': 'i'
         }
       };
@@ -144,14 +144,7 @@ module.exports = function(discordClient) {
       } else {
         quote = result.quote;
         if (channel !== null) {
-          // channel.send('', {
-          //   embed: {
-          //     title: util.format(QUOTE_GET_TITLE, name),
-          //     description: quote,
-          //     color: COLOR_CMD
-          //   }
-          // }); // TODO: embeds with previews
-          channel.send(util.format('```%s```\n%s', util.format(QUOTE_GET_TITLE, name), quote));
+          sendQuote(channel, guild, name, quote);
         }
       }
       return quote;
@@ -174,23 +167,32 @@ module.exports = function(discordClient) {
    * Used to get a quote when no prefix is enabled.
    *
    * @param {Discord.TextChannel} channel - A discord.js text channel this command came from.
-   *                                        Pass in null to skip sending the message and just return.
    * @param {Discord.Guild} guild - A discord.js guild that the quote belongs to.
    * @param {string} name - Name of the quote.
-   *
-   * @returns {string} The quote. null if the quote doesn't exist.
    */
   const quoteGetNoPrefix = async function(channel, guild, name) {
     let quote = await quoteGet(null, guild, name);
     if (quote !== null) {
-      // channel.send('', {
-      //   embed: {
-      //     title: util.format(QUOTE_GET_TITLE, name),
-      //     description: quote,
-      //     color: COLOR_CMD
-      //   }
-      // }); // TODO: embeds with previews
-      channel.send(util.format('```%s```\n%s', util.format(QUOTE_GET_TITLE, name), quote));
+      console.log(`Got a one word quote without prefix:\n\t${name}`);
+      sendQuote(channel, guild, name, quote);
+    }
+  };
+
+  /**
+  * Sends a quote message.
+  *
+  * @param {Discord.TextChannel} channel - A discord.js text channel this command came from.
+  * @param {Discord.Guild} guild - A discord.js guild that the quote belongs to.
+  * @param {string} name - Name of the quote.
+  * @param {string} quote - The quote content.
+  *
+  * @returns {Promise} Returns the promise from channel.send (Promise<(Message|Array<Message>)>).
+  */
+  const sendQuote = function(channel, guild, name, quote) {
+    if (repeatName) {
+      return channel.send(util.format('```%s```\n%s', util.format(QUOTE_GET_TITLE, name), quote));
+    } else {
+      return channel.send(quote);
     }
   };
 
@@ -291,24 +293,18 @@ module.exports = function(discordClient) {
         // first page, but only create reactions if there's more than one page
         if (maxIndex > 0) {
           message.react(RIGHT_EMOJI);
-          filter = (reaction, user) => {
-            return reaction.emoji.name === RIGHT_EMOJI && user.id !== discordClient.user.id;
-          };
+          filter = (reaction, user) => reaction.emoji.name === RIGHT_EMOJI && user.id !== discordClient.user.id;
         } else {
           filter = (reaction, user) => false;
         }
       } else if (currentIndex === maxIndex) {
         // last page
         message.react(LEFT_EMOJI);
-        filter = (reaction, user) => {
-          return reaction.emoji.name === LEFT_EMOJI && user.id !== discordClient.user.id;
-        };
+        filter = (reaction, user) => reaction.emoji.name === LEFT_EMOJI && user.id !== discordClient.user.id;
       } else {
         await message.react(LEFT_EMOJI);
         message.react(RIGHT_EMOJI);
-        filter = (reaction, user) => {
-          return (reaction.emoji.name === LEFT_EMOJI || reaction.emoji.name === RIGHT_EMOJI) && user.id !== discordClient.user.id;
-        };
+        filter = (reaction, user) => (reaction.emoji.name === LEFT_EMOJI || reaction.emoji.name === RIGHT_EMOJI) && user.id !== discordClient.user.id;
       }
     } catch (error) {
       console.error(error);
@@ -323,7 +319,7 @@ module.exports = function(discordClient) {
     // node timer for listener timeout; not using discord.js's reaction collector
     let timeout = setTimeout(() => {
       collector.stop();
-      message.clearReactions();
+      message.reactions.removeAll();
     }, quoteListTimeout);
 
     // collect event emitted with filter, switch pages
@@ -359,7 +355,7 @@ module.exports = function(discordClient) {
       // unlisten since we're refreshing the interaction
       clearTimeout(timeout);
       collector.stop();
-      await editedMessage.clearReactions();
+      await editedMessage.reactions.removeAll();
       quoteListInteraction(editedMessage, pages, newIndex);
     });
   };
@@ -491,7 +487,7 @@ module.exports = function(discordClient) {
     } else {
       queryObj = {
         'name': {
-          '$regex': `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+          '$regex': sanitizeRegex(name),
           '$options': 'i'
         }
       };
@@ -554,11 +550,16 @@ module.exports = function(discordClient) {
     });
   };
 
+  const sanitizeRegex = function(msg) {
+    return `^${msg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
+  };
+
   discordClient.on('message', async (msg) => {
     let msgContent = msg.content;
     let channel = msg.channel;
 
     if (msgContent.startsWith(CMD_QUOTE)) {
+      console.log(`Got message:\n\t${msgContent}`);
       let name = msgContent.substring(CMD_QUOTE.length);
       let spaceIndex = name.indexOf(' ');
       if (spaceIndex !== -1) {
@@ -567,9 +568,11 @@ module.exports = function(discordClient) {
       quoteGet(channel, channel.guild, name);
 
     } else if (msgContent.startsWith(CMD_QUOTE_LIST)) {
+      console.log(`Got message:\n\t${msgContent}`);
       quoteList(channel);
 
     } else if (msgContent.startsWith(CMD_QUOTE_ADD)) {
+      console.log(`Got message:\n\t${msgContent}`);
       let nameAndContent = msgContent.substring(CMD_QUOTE_ADD.length);
       let contentIndex = nameAndContent.indexOf(NAME_CONTENT_DELIMITER);
       let name = nameAndContent.substring(0, contentIndex);
@@ -577,10 +580,12 @@ module.exports = function(discordClient) {
       quoteAdd(channel, name, content);
 
     } else if (msgContent.startsWith(CMD_QUOTE_REMOVE)) {
+      console.log(`Got message:\n\t${msgContent}`);
       let name = msgContent.substring(CMD_QUOTE_REMOVE.length);
       quoteRemove(channel, name);
 
     } else if (msgContent.startsWith(CMD_HELP)) {
+      console.log(`Got message:\n\t${msgContent}`);
       quoteHelp(channel);
     } else if (noPrefixQuote && !msgContent.includes(' ')) {
       quoteGetNoPrefix(channel, channel.guild, msgContent);
@@ -596,12 +601,14 @@ module.exports = function(discordClient) {
     const noPrefix = process.env.QUOTE_GET_NO_PREFIX;
     const timeout = process.env.QUOTE_LIST_TIMEOUT;
     const quoteCase = process.env.QUOTE_CASE_SENS;
+    const repeatNameConst = process.env.REPEAT_QUOTE_NAME;
 
     if (url === undefined || name === undefined || user === undefined || password === undefined ||
         noPrefix === undefined) {
       throw new Error(CON_ERR_DB_ENV);
     } else {
       noPrefixQuote = JSON.parse(noPrefix.toLowerCase());
+
       if (typeof noPrefixQuote !== 'boolean') {
         throw new Error(CON_ERR_DB_ENV);
       }
@@ -615,10 +622,14 @@ module.exports = function(discordClient) {
       caseSens = JSON.parse(quoteCase.toLowerCase());
     }
 
+    if (repeatNameConst !== undefined) {
+      repeatName = JSON.parse(repeatNameConst.toLowerCase());
+    }
+
     const urlFormat = 'mongodb://%s:%s@' + url;
     const fullUrl = util.format(urlFormat, encodeURIComponent(user), encodeURIComponent(password));
 
-    MongoClient.connect(fullUrl, { useNewUrlParser: true }, (error, client) => {
+    MongoClient.connect(fullUrl, { useNewUrlParser: true, useUnifiedTopology: true }, (error, client) => {
       if (error !== null) {
         throw new Error(CON_ERR_DB_CONNECT + error.message);
       }
