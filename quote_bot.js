@@ -37,8 +37,8 @@ module.exports = function(discordClient) {
   const QUOTE_LIST_ENTRY = '• `%s`\n';
   const QUOTE_LIST_MAX_ENTRIES = 10;
   const QUOTE_LIST_HELP = '`!quotelist`';
-  const LEFT_EMOJI = '⬅';
-  const RIGHT_EMOJI = '➡';
+  const LEFT_EMOJI = '⬅️';
+  const RIGHT_EMOJI = '➡️';
 
   const CMD_QUOTE_ADD = '!quoteadd ';
   const QUOTE_ADD_QUOTE_MAX_CHARS = 1500;
@@ -83,12 +83,12 @@ module.exports = function(discordClient) {
     if (mongoDb === undefined) {
       console.error(CON_ERR_DB);
       if (channel !== null) {
-        channel.send('', {
-          embed: {
+        channel.send({
+          embeds: [{
             title: CMD_ERROR_TITLE,
             description: CMD_DB_NOT_READY,
             color: COLOR_ERR
-          }
+          }]
         });
       }
       return null;
@@ -97,12 +97,12 @@ module.exports = function(discordClient) {
     if (name.length > QUOTE_NAME_MAX_CHARS) {
       console.error(util.format(QUOTE_NAME_MAX_CHARS_DESC, QUOTE_NAME_MAX_CHARS));
       if (channel !== null) {
-        channel.send('', {
-          embed: {
+        channel.send({
+          embeds: [{
             title: CMD_ERROR_TITLE,
             description: util.format(QUOTE_NAME_MAX_CHARS_DESC, QUOTE_NAME_MAX_CHARS),
             color: COLOR_ERR
-          }
+          }]
         });
       }
       return null;
@@ -133,12 +133,12 @@ module.exports = function(discordClient) {
       if (result === null) {
         quote = null;
         if (channel !== null) {
-          channel.send('', {
-            embed: {
+          channel.send({
+            embeds: [{
               title: QUOTE_GET_ERROR,
               description: util.format(QUOTE_NOT_FOUND_DESC, name),
               color: COLOR_ERR
-            }
+            }]
           });
         }
       } else {
@@ -151,12 +151,12 @@ module.exports = function(discordClient) {
     } catch (findError) {
       console.error(findError);
       if (channel !== null) {
-        channel.send('', {
-          embed: {
+        channel.send({
+          embeds: [{
             title: QUOTE_GET_ERROR,
             description: util.format(CMD_ERR_UNKNOWN, findError.message),
             color: COLOR_ERR
-          }
+          }]
         });
       }
       return null;
@@ -207,12 +207,12 @@ module.exports = function(discordClient) {
     // make sure MongoDB connection is ready
     if (mongoDb === undefined) {
       console.error(CON_ERR_DB);
-      channel.send('', {
-        embed: {
+      channel.send({
+        embeds: [{
           title: CMD_ERROR_TITLE,
           description: CMD_DB_NOT_READY,
           color: COLOR_ERR
-        }
+        }]
       });
       return 0;
     }
@@ -227,12 +227,12 @@ module.exports = function(discordClient) {
 
       // no quotes on this server
       if (quotes.length === 0) {
-        channel.send('', {
-          embed: {
+        channel.send({
+          embeds: [{
             title: QUOTE_LIST_ERR,
             description: QUOTE_LIST_NONE,
             color: COLOR_ERR
-          }
+          }]
         });
         return 0;
       } else {
@@ -254,24 +254,24 @@ module.exports = function(discordClient) {
         let currentIndex = 0;
         let header = util.format(QUOTE_LIST_HEADER, (currentIndex + 1), pageCount);
         let desc = pages[currentIndex];
-        let initMessage = await channel.send('', {
-          embed: {
+        let initMessage = await channel.send({
+          embeds: [{
             title: header,
             description: desc,
             color: COLOR_CMD
-          }
+          }]
         });
         quoteListInteraction(initMessage, pages, currentIndex);
 
         return quotes.length;
       }
     } catch (error) {
-      channel.send('', {
-        embed: {
+      channel.send({
+        embeds: [{
           title: QUOTE_LIST_ERR,
           description: util.format(CMD_ERR_UNKNOWN, error.message),
           color: COLOR_ERR
-        }
+        }]
       });
     }
   };
@@ -292,24 +292,26 @@ module.exports = function(discordClient) {
       if (currentIndex === 0) {
         // first page, but only create reactions if there's more than one page
         if (maxIndex > 0) {
-          message.react(RIGHT_EMOJI);
+          await message.react(RIGHT_EMOJI);
           filter = (reaction, user) => reaction.emoji.name === RIGHT_EMOJI && user.id !== discordClient.user.id;
         } else {
           filter = (reaction, user) => false;
         }
       } else if (currentIndex === maxIndex) {
         // last page
-        message.react(LEFT_EMOJI);
+        await message.react(LEFT_EMOJI);
         filter = (reaction, user) => reaction.emoji.name === LEFT_EMOJI && user.id !== discordClient.user.id;
       } else {
         await message.react(LEFT_EMOJI);
-        message.react(RIGHT_EMOJI);
+        await message.react(RIGHT_EMOJI);
         filter = (reaction, user) => (reaction.emoji.name === LEFT_EMOJI || reaction.emoji.name === RIGHT_EMOJI) && user.id !== discordClient.user.id;
       }
     } catch (error) {
       console.error(error);
       return;
     }
+
+    await new Promise(resolve => setTimeout(resolve, 100)); // FIXME: strange issue with filter not working if going too fast?
 
     // discord.js reaction collector for this message
     let collector = message.createReactionCollector(filter, {
@@ -323,8 +325,7 @@ module.exports = function(discordClient) {
     }, quoteListTimeout);
 
     // collect event emitted with filter, switch pages
-    // TODO: when discord.js stable recieves 'remove' events, handle removes and collects
-    //       so it's not as choppy to constantly clear repopulate
+    // TODO: switch to buttons
     collector.on('collect', async (reaction) => {
       let newIndex;
       let emoji = reaction.emoji.name;
@@ -338,12 +339,12 @@ module.exports = function(discordClient) {
       let newDesc = pages[newIndex];
       let editedMessage;
       try {
-        editedMessage = await message.edit('', {
-          embed: {
+        editedMessage = await message.edit({
+          embeds: [{
             title: newHeader,
             description: newDesc,
             color: COLOR_CMD
-          }
+          }]
         });
       } catch (error) {
         clearTimeout(timeout);
@@ -373,45 +374,45 @@ module.exports = function(discordClient) {
     // make sure MongoDB connection is ready
     if (mongoDb === undefined) {
       console.error(CON_ERR_DB);
-      channel.send('', {
-        embed: {
+      channel.send({
+        embeds: [{
           title: CMD_ERROR_TITLE,
           description: CMD_DB_NOT_READY,
           color: COLOR_ERR
-        }
+        }]
       });
       return false;
     }
 
     // if one of them are empty, then the command was malformed
     if (name === '' || content === '') {
-      channel.send('', {
-        embed: {
+      channel.send({
+        embeds: [{
           title: CMD_FORMAT_TITLE,
           description: util.format(CMD_FORMAT_DESC, QUOTE_ADD_HELP),
           color: COLOR_ERR
-        }
+        }]
       });
       return false;
     }
 
     // some char limits in place to prevent discord's 2000 char limit causing issues
     if (name.length > QUOTE_NAME_MAX_CHARS) {
-      channel.send('', {
-        embed: {
+      channel.send({
+        embeds: [{
           title: QUOTE_ADD_ERR,
           description: util.format(QUOTE_NAME_MAX_CHARS_DESC, QUOTE_NAME_MAX_CHARS),
           color: COLOR_ERR
-        }
+        }]
       });
       return false;
     } else if (content.length > QUOTE_ADD_QUOTE_MAX_CHARS) {
-      channel.send('', {
-        embed: {
+      channel.send({
+        embeds: [{
           title: QUOTE_ADD_ERR,
           description: util.format(QUOTE_ADD_QUOTE_MAX_CHARS_DESC, QUOTE_ADD_QUOTE_MAX_CHARS),
           color: COLOR_ERR
-        }
+        }]
       });
       return false;
     }
@@ -422,12 +423,12 @@ module.exports = function(discordClient) {
       // check for existing quote, no duplicate names
       let existingQuote = await quoteGet(null, channel.guild, name);
       if (existingQuote !== null) {
-        channel.send('', {
-          embed: {
+        channel.send({
+          embeds: [{
             title: QUOTE_ADD_ERR,
             description: util.format(QUOTE_ADD_EXISTS_DESC, name),
             color: COLOR_ERR
-          }
+          }]
         });
         return false;
       }
@@ -438,16 +439,16 @@ module.exports = function(discordClient) {
         quote: content
       });
       channel.send('',  {
-        embed: {
+        embeds: [{
           title: QUOTE_ADD_TITLE,
           description: util.format(QUOTE_ADD_DESC, name),
           color: COLOR_SUCCESS
-        }
+        }]
       });
       return true;
     } catch (error) {
       console.error(error);
-      channel.send('', {
+      channel.send({
         title: QUOTE_ADD_ERR,
         description: util.format(CMD_ERR_UNKNOWN, error.message),
         color: COLOR_ERR
@@ -468,8 +469,8 @@ module.exports = function(discordClient) {
     // make sure MongoDB connection is ready
     if (mongoDb === undefined) {
       console.error(CON_ERR_DB);
-      channel.send('', {
-        embed: {
+      channel.send({
+        embeds: {
           title: CMD_ERROR_TITLE,
           description: CMD_DB_NOT_READY,
           color: COLOR_ERR
@@ -500,32 +501,32 @@ module.exports = function(discordClient) {
 
       // nothing deleted, quote never existed
       if (result.deletedCount === 0) {
-        channel.send('', {
-          embed: {
+        channel.send({
+          embeds: [{
             title: QUOTE_RM_ERR,
             description: util.format(QUOTE_RM_NONE, name),
             color: COLOR_ERR
-          }
+          }]
         });
         return false;
       } else {
-        channel.send('', {
-          embed: {
+        channel.send({
+          embeds: [{
             title: QUOTE_RM_TITLE,
             description: util.format(QUOTE_RM_DESC, name),
             color: COLOR_SUCCESS
-          }
+          }]
         });
         return true;
       }
     } catch (error) {
       console.error(error);
-      channel.send('', {
-        embed: {
+      channel.send({
+        embeds: [{
           title: QUOTE_RM_ERR,
           description: util.format(CMD_ERR_UNKNOWN, error.message),
           color: COLOR_ERR
-        }
+        }]
       });
       return false;
     }
@@ -538,15 +539,15 @@ module.exports = function(discordClient) {
    */
   const quoteHelp = function(channel) {
     // send all this bot's available commands
-    channel.send('', {
-      embed: {
+    channel.send({
+      embeds: [{
         title: HELP_TITLE,
         description: QUOTE_GET_HELP + '\n' +
                      QUOTE_LIST_HELP + '\n' +
                      QUOTE_ADD_HELP + '\n' +
                      QUOTE_RM_HELP,
         color: COLOR_CMD
-      }
+      }]
     });
   };
 
@@ -554,7 +555,7 @@ module.exports = function(discordClient) {
     return `^${msg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
   };
 
-  discordClient.on('message', async (msg) => {
+  discordClient.on('messageCreate', async (msg) => {
     let msgContent = msg.content;
     let channel = msg.channel;
 
@@ -628,7 +629,7 @@ module.exports = function(discordClient) {
 
     const fullUrl = util.format(url, encodeURIComponent(user), encodeURIComponent(password));
     MongoClient.connect(fullUrl, { useNewUrlParser: true, useUnifiedTopology: true }, (error, client) => {
-      if (error !== null) {
+      if (error !== undefined) {
         throw new Error(CON_ERR_DB_CONNECT + error.message);
       }
 
