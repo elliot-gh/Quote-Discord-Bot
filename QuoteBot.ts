@@ -423,6 +423,7 @@ export class QuoteBot implements BotInterface {
 
         return new MessageEmbed()
             .setTitle(QuoteBot.serializeListString(listObj))
+            .setColor(0x8C8F91)
             .setDescription(nameList);
     }
 
