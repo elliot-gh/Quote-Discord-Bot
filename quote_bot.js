@@ -1,3 +1,4 @@
+/* eslint-disable */
 /*
  * File name: quote_bot.js
  * Description: Responsible for quote mechanics.

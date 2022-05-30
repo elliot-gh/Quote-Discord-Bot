@@ -1,0 +1,16 @@
+# Copy this file as "config.yaml", and fill in the values as appropriate.
+# ------------------------------------------------------------------------------
+
+#  ***** For the url, put %s where your username and password go! *****
+# For example: mongodb+srv://%s:%s@example.com/example?example=example
+mongoDb:
+  url:
+  name:
+  user:
+  password:
+
+# Whether you want one word messages to grab messages.
+getNoPrefix: false
+
+# Whether quote names are case sensitive
+caseSensitive: false

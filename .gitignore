@@ -65,3 +65,14 @@ typings/
 # my stuff
 .vscode
 .env
+
+# config
+config.yaml
+
+# yarn
+.yarn
+.pnp.*
+
+# bots
+src/bots/*
+!src/bots/PingBot
