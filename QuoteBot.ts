@@ -1,11 +1,19 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SlashCommandBuilder } from "@discordjs/builders";
-import { CommandInteraction, Intents, Client, ModalSubmitInteraction, Modal, TextInputComponent, MessageActionRow, ModalActionRowComponent, MessageEmbed, Message } from "discord.js";
+import { CommandInteraction, Intents, Client, ModalSubmitInteraction, Modal, TextInputComponent,
+    MessageActionRow, ModalActionRowComponent, MessageEmbed, Message, MessageButton,
+    MessageSelectMenu, MessageSelectOptionData, ButtonInteraction, MessageComponentInteraction,
+    SelectMenuInteraction, WebhookEditMessageOptions } from "discord.js";
 import { BotInterface } from "../../BotInterface";
 import { readYamlConfig } from "../../ConfigUtils";
 import { QuoteConfig } from "./QuoteConfig";
-import { MongoQuote } from "./MongoQuote";
+import { MongoQuote, QuotePage } from "./MongoQuote";
+
+type ListStringObject = {
+    currentPage: number,
+    maxPages: number
+}
 
 export class QuoteBot implements BotInterface {
     private static readonly SUBCMD_GET = "get";
@@ -19,6 +27,10 @@ export class QuoteBot implements BotInterface {
     private static readonly SUBCMD_DEL = "delete";
     private static readonly SUBCMD_DEL_OPT = "name";
     private static readonly SUBCMD_LIST = "list";
+    private static readonly LIST_PER_PAGE = 10;
+    private static readonly LIST_BTN_PREV = "btnPrev";
+    private static readonly LIST_BTN_NEXT = "btnNext";
+    private static readonly LIST_SLCT_MENU_PAGE = "selectPage";
 
     private static mongoInit = false;
     private static config: QuoteConfig;
@@ -97,8 +109,18 @@ export class QuoteBot implements BotInterface {
             }
 
             if (interaction.isModalSubmit()) {
-                console.log(`[QuoteBot] Got modal submission: ${interaction}`);
+                console.log(`[QuoteBot] Got modal submission: ${interaction.customId}`);
                 await this.handleCreateModalSubmit(interaction);
+            }
+
+            if (interaction.isButton()) {
+                console.log(`[QuoteBot] Got button click: ${interaction.customId}`);
+                await this.handleButtonClick(interaction);
+            }
+
+            if (interaction.isSelectMenu()) {
+                console.log(`[QuoteBot] Got select menu interaction: ${interaction.customId}`);
+                await this.handleSelectMenu(interaction);
             }
         });
 
@@ -191,8 +213,17 @@ export class QuoteBot implements BotInterface {
         }
     }
 
-    async handleSlashList(intercation: CommandInteraction): Promise<void> {
-        throw new Error("not implemented");
+    async handleSlashList(interaction: CommandInteraction): Promise<void> {
+        console.log("[QuoteBot] Got /quote list command");
+        try {
+            await interaction.deferReply();
+            const replyObj = await QuoteBot.createListReply(interaction.guildId!, 0);
+
+            await interaction.editReply(replyObj);
+        } catch (error) {
+            console.error(`[QuoteBot] Error handling list command:\n${error}`);
+            await this.sendErrorMessage(interaction, error);
+        }
     }
 
     async handleCreateModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
@@ -234,6 +265,57 @@ export class QuoteBot implements BotInterface {
         }
     }
 
+    async handleButtonClick(interaction: ButtonInteraction): Promise<void> {
+        const id = interaction.customId;
+
+        try {
+            await interaction.deferUpdate();
+
+            const title = interaction.message.embeds[0].title;
+            const listObj = QuoteBot.deserializeListString(title!);
+
+            let newPage;
+            if (id === QuoteBot.LIST_BTN_NEXT) {
+                newPage = listObj.currentPage + 1;
+            } else {
+                newPage = listObj.currentPage - 1;
+            }
+
+            await this.goToPage(interaction, newPage);
+        } catch (error) {
+            console.error(`[QuoteBot] Error in handleButtonClick(): ${error}`);
+            await this.sendErrorMessage(interaction, error);
+        }
+    }
+
+    async handleSelectMenu(interaction: SelectMenuInteraction): Promise<void> {
+        try {
+            await interaction.deferUpdate();
+
+            const value = interaction.values[0];
+            const newPage = parseInt(value);
+
+            await this.goToPage(interaction, newPage);
+        } catch (error) {
+            console.error(`[QuoteBot] Error in handleSelectMenu(): ${error}`);
+            await this.sendErrorMessage(interaction, error);
+        }
+    }
+
+    async goToPage(interaction: ButtonInteraction | SelectMenuInteraction, newPage: number): Promise<void> {
+        const guildId = interaction.guildId!;
+        const maxPages = await MongoQuote.getMaxPages(guildId, QuoteBot.LIST_PER_PAGE);
+
+        if (newPage < 0) {
+            throw new Error("Cannot go past page zero.");
+        } else if (newPage >= maxPages) {
+            throw new Error("Cannot go past max pages.");
+        }
+
+        const replyObj = await QuoteBot.createListReply(guildId, newPage);
+        await interaction.editReply(replyObj);
+    }
+
     async handleGetNoPrefix(message: Message): Promise<void> {
         const content = message.content.trim();
         try {
@@ -246,7 +328,7 @@ export class QuoteBot implements BotInterface {
                 return;
             }
 
-            console.log(`[QuoteBote] Got one word quote with name ${content}:\n\t${quote}`);
+            console.log(`[QuoteBot] Got one word quote with name ${content}:\n\t${quote}`);
             await message.channel.send(quote);
         } catch (error) {
             console.error(`[QuoteBot] Error in handleGetNoPrefix() with message ${content}:\n${error}`);
@@ -289,12 +371,87 @@ export class QuoteBot implements BotInterface {
         return null;
     }
 
+    static serializeListString(obj: ListStringObject): string {
+        return `Page ${obj.currentPage + 1} of ${obj.maxPages}`;
+    }
+
+    static deserializeListString(str: string): ListStringObject {
+        const currentPageStr = str.substring(5, str.indexOf(" of "));
+        const maxPageStr = str.substring(str.indexOf("f ") + 2);
+        return {
+            currentPage: parseInt(currentPageStr) - 1,
+            maxPages: parseInt(maxPageStr)
+        };
+    }
+
+    static createButtonNext(): MessageButton {
+        return new MessageButton()
+            .setCustomId(QuoteBot.LIST_BTN_NEXT)
+            .setLabel("Next Page")
+            .setStyle("PRIMARY");
+    }
+
+    static createButtonBack(): MessageButton {
+        return new MessageButton()
+            .setCustomId(QuoteBot.LIST_BTN_PREV)
+            .setLabel("Previous Page")
+            .setStyle("PRIMARY");
+    }
+
+    static createPageSelect(listObj: ListStringObject): MessageSelectMenu {
+        const options: MessageSelectOptionData[] = [];
+        for (let pageNum = 0; pageNum < listObj.maxPages; pageNum++) {
+            if (pageNum === listObj.currentPage) {
+                continue;
+            }
+
+            options.push({
+                label: `Page ${pageNum + 1}`,
+                value: pageNum.toString()
+            });
+        }
+
+        return new MessageSelectMenu()
+            .setCustomId(QuoteBot.LIST_SLCT_MENU_PAGE)
+            .setPlaceholder(`Page ${listObj.currentPage + 1}`)
+            .addOptions(options);
+    }
+
+    static createListEmbed(page: QuotePage, listObj: ListStringObject): MessageEmbed {
+        let nameList = "";
+        page.names.forEach(name => nameList += `• ${name}\n`);
+
+        return new MessageEmbed()
+            .setTitle(QuoteBot.serializeListString(listObj))
+            .setDescription(nameList);
+    }
+
+    static async createListReply(guildId: string, currentPage: number): Promise<WebhookEditMessageOptions> {
+        const maxPages = await MongoQuote.getMaxPages(guildId, QuoteBot.LIST_PER_PAGE);
+        const page = await MongoQuote.getQuotePage(guildId, currentPage, QuoteBot.LIST_PER_PAGE);
+        const listObj: ListStringObject = {
+            currentPage: currentPage,
+            maxPages: maxPages
+        };
+
+        const embed = QuoteBot.createListEmbed(page, listObj);
+        const btnPrev = QuoteBot.createButtonBack().setDisabled(listObj.currentPage <= 0);
+        const btnNext = QuoteBot.createButtonNext().setDisabled(listObj.currentPage + 1 >= maxPages);
+        const pageSelect = QuoteBot.createPageSelect(listObj);
+        const rowSelect = new MessageActionRow().addComponents(pageSelect);
+        const rowBtns = new MessageActionRow().addComponents(btnPrev, btnNext);
+        return {
+            embeds: [embed],
+            components: [rowSelect, rowBtns]
+        };
+    }
+
     /**
      * Replies to the interaction with an error message. Tries to figure out what to print.
      * @param interaction The discord.js CommandInteraction
      * @param error The error. Could be typeof Error, string, or null.
      */
-    async sendErrorMessage(interaction: CommandInteraction | ModalSubmitInteraction, error: unknown = null): Promise<void> {
+    async sendErrorMessage(interaction: CommandInteraction | MessageComponentInteraction | ModalSubmitInteraction, error: unknown = null): Promise<void> {
         let description = "";
         if (error instanceof Error) {
             description = error.message;

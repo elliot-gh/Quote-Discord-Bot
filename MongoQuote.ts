@@ -8,6 +8,12 @@ interface IQuote {
     quote: string
 }
 
+export type QuotePage = {
+    currentPage: number,
+    maxPages: number,
+    names: string[]
+}
+
 /**
  * Singleton responsible for working with MongoDB and quotes.
  */
@@ -98,6 +104,54 @@ export class MongoQuote {
 
         const result = await guildQuotes.deleteOne(queryObj);
         return result.deletedCount > 0;
+    }
+
+    /**
+     * Gets a sorted list of quote names at the specified page number.
+     * @param guildId The Discord guild ID
+     * @param page The current page to get names of
+     * @param perPage Amount of names per page
+     * @returns The current page
+     */
+    static async getQuotePage(guildId: string, page: number, perPage: number): Promise<QuotePage> {
+        if (!this.ready) {
+            throw new Error("MongoDB connection not ready.");
+        }
+
+        const guildQuotes = this.connection.model<IQuote>(guildId, MongoQuote.schema);
+        const skip = perPage * page;
+
+        const maxPages = await this.getMaxPages(guildId, perPage);
+        const quotes = await guildQuotes.find<IQuote>({})
+            .select({ name: 1 })
+            .sort({ name: "ascending" })
+            .skip(skip)
+            .limit(perPage);
+        const names = quotes.map(quote => quote.name);
+
+        return {
+            currentPage: page,
+            maxPages: maxPages,
+            names: names
+        };
+    }
+
+    /**
+     * Gets the max pages.
+     * @param guildId The Discord guild ID
+     * @param perPage Amount of names per page
+     * @returns The number of pages
+     */
+    static async getMaxPages(guildId: string, perPage: number): Promise<number> {
+        if (!this.ready) {
+            throw new Error("MongoDB connection not ready.");
+        }
+
+        const guildQuotes = this.connection.model<IQuote>(guildId, MongoQuote.schema);
+        const count = await guildQuotes.count();
+        const maxPages = Math.ceil(count / perPage);
+
+        return maxPages;
     }
 
     /**
