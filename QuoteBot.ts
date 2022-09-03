@@ -1,10 +1,7 @@
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { SlashCommandBuilder } from "@discordjs/builders";
-import { CommandInteraction, Intents, Client, ModalSubmitInteraction, Modal, TextInputComponent,
-    MessageActionRow, ModalActionRowComponent, MessageEmbed, Message, MessageButton,
-    MessageSelectMenu, MessageSelectOptionData, ButtonInteraction, MessageComponentInteraction,
-    SelectMenuInteraction, WebhookEditMessageOptions } from "discord.js";
+import { CommandInteraction, Client, ModalSubmitInteraction, Message, ButtonInteraction, MessageComponentInteraction,
+    SelectMenuInteraction, WebhookEditMessageOptions, GatewayIntentBits, ChatInputCommandInteraction, EmbedBuilder,
+    ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, SelectMenuBuilder, SelectMenuOptionBuilder } from "discord.js";
 import { BotInterface } from "../../BotInterface";
 import { readYamlConfig } from "../../ConfigUtils";
 import { QuoteConfig } from "./QuoteConfig";
@@ -35,13 +32,13 @@ export class QuoteBot implements BotInterface {
     private static mongoInit = false;
     private static config: QuoteConfig;
 
-    intents: number[];
-    slashCommands: [SlashCommandBuilder];
+    intents: GatewayIntentBits[];
+    commands: [SlashCommandBuilder];
 
     private slashQuote: SlashCommandBuilder;
 
     constructor() {
-        this.intents = [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES];
+        this.intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
         this.slashQuote = new SlashCommandBuilder()
             .setName("quote")
             .setDescription("Create, get, or list saved quotes.")
@@ -77,10 +74,14 @@ export class QuoteBot implements BotInterface {
                     .setName(QuoteBot.SUBCMD_LIST)
                     .setDescription("Lists all quote names.")
             ) as SlashCommandBuilder;
-        this.slashCommands = [this.slashQuote];
+        this.commands = [this.slashQuote];
     }
 
-    async processSlashCommand(interaction: CommandInteraction): Promise<void> {
+    async processCommand(interaction: CommandInteraction): Promise<void> {
+        if (!interaction.isChatInputCommand()) {
+            return;
+        }
+
         console.log(`[QuoteBot]: Got interaction: ${interaction}`);
         try {
             switch(interaction.options.getSubcommand()) {
@@ -135,30 +136,30 @@ export class QuoteBot implements BotInterface {
         }
     }
 
-    async handleSlashCreate(interaction: CommandInteraction): Promise<void> {
-        const modal = new Modal()
+    async handleSlashCreate(interaction: ChatInputCommandInteraction): Promise<void> {
+        const modal = new ModalBuilder()
             .setCustomId(QuoteBot.CREATE_MODAL)
             .setTitle("Create a Quote");
-        const nameInput = new TextInputComponent()
+        const nameInput = new TextInputBuilder()
             .setCustomId(QuoteBot.CREATE_MODAL_NAME)
             .setLabel("Name of the quote. Cannot contain spaces:")
-            .setStyle("SHORT")
+            .setStyle(TextInputStyle.Short)
             .setMinLength(1)
             .setMaxLength(QuoteBot.NAME_MAX_CHARS);
-        const quoteInput = new TextInputComponent()
+        const quoteInput = new TextInputBuilder()
             .setCustomId(QuoteBot.CREATE_MODAL_QUOTE)
             .setLabel("Quote text:")
-            .setStyle("PARAGRAPH")
+            .setStyle(TextInputStyle.Paragraph)
             .setMinLength(1)
             .setMaxLength(QuoteBot.QUOTE_MAX_CHARS);
-        const firstActionRow = new MessageActionRow<ModalActionRowComponent>().addComponents(nameInput);
-        const secondActionRow = new MessageActionRow<ModalActionRowComponent>().addComponents(quoteInput);
+        const firstActionRow = new ActionRowBuilder().addComponents(nameInput) as ActionRowBuilder<TextInputBuilder>;
+        const secondActionRow = new ActionRowBuilder().addComponents(quoteInput) as ActionRowBuilder<TextInputBuilder>;
         modal.addComponents(firstActionRow, secondActionRow);
 
         await interaction.showModal(modal);
     }
 
-    async handleSlashGet(interaction: CommandInteraction): Promise<void> {
+    async handleSlashGet(interaction: ChatInputCommandInteraction): Promise<void> {
         const name = interaction.options.getString(QuoteBot.SUBCMD_DEL_OPT, true).trim();
         console.log(`[QuoteBot] Got get command for name ${name}`);
 
@@ -183,7 +184,7 @@ export class QuoteBot implements BotInterface {
         }
     }
 
-    async handleSlashDelete(interaction: CommandInteraction): Promise<void> {
+    async handleSlashDelete(interaction: ChatInputCommandInteraction): Promise<void> {
         const name = interaction.options.getString(QuoteBot.SUBCMD_DEL_OPT, true).trim();
         console.log(`[QuoteBot] Got delete command for name ${name}`);
 
@@ -202,7 +203,7 @@ export class QuoteBot implements BotInterface {
             }
 
             await interaction.editReply({ embeds: [
-                new MessageEmbed()
+                new EmbedBuilder()
                     .setTitle("Success")
                     .setDescription(`Deleted quote with name \`${name}\`.`)
                     .setColor(0x00FF00)
@@ -254,7 +255,7 @@ export class QuoteBot implements BotInterface {
             await MongoQuote.createQuote(interaction.guildId!, name, quote, QuoteBot.config.caseSensitive);
 
             await interaction.editReply({ embeds: [
-                new MessageEmbed()
+                new EmbedBuilder()
                     .setTitle("Success")
                     .setDescription(`Created quote with name \`${name}\`.`)
                     .setColor(0x00FF00)
@@ -267,6 +268,9 @@ export class QuoteBot implements BotInterface {
 
     async handleButtonClick(interaction: ButtonInteraction): Promise<void> {
         const id = interaction.customId;
+        if (id !== QuoteBot.LIST_BTN_PREV && id !== QuoteBot.LIST_BTN_NEXT) {
+            return;
+        }
 
         try {
             await interaction.deferUpdate();
@@ -289,6 +293,11 @@ export class QuoteBot implements BotInterface {
     }
 
     async handleSelectMenu(interaction: SelectMenuInteraction): Promise<void> {
+        const id = interaction.customId;
+        if (id !== QuoteBot.LIST_SLCT_MENU_PAGE) {
+            return;
+        }
+
         try {
             await interaction.deferUpdate();
 
@@ -307,9 +316,11 @@ export class QuoteBot implements BotInterface {
         const maxPages = await MongoQuote.getMaxPages(guildId, QuoteBot.LIST_PER_PAGE);
 
         if (newPage < 0) {
-            throw new Error("Cannot go past page zero.");
+            console.error(`[QuoteBot] Got newPage ${newPage}, setting to 0.`);
+            newPage = 0;
         } else if (newPage >= maxPages) {
-            throw new Error("Cannot go past max pages.");
+            console.error(`[QuoteBot] Got newPage ${newPage} over maxPages ${maxPages}, setting to maxPages.`);
+            newPage = maxPages - 1;
         }
 
         const replyObj = await QuoteBot.createListReply(guildId, newPage);
@@ -340,12 +351,11 @@ export class QuoteBot implements BotInterface {
             return null;
         }
 
-        const configPath = join(dirname(fileURLToPath(import.meta.url)), "config.yaml");
         try {
-            QuoteBot.config = await readYamlConfig<QuoteConfig>(configPath);
+            QuoteBot.config = await readYamlConfig<QuoteConfig>(import.meta, "config.yaml");
             await MongoQuote.init(QuoteBot.config);
         } catch (error) {
-            const errMsg = `[ColorMeBot] Unable to read config: ${error}`;
+            const errMsg = `[QuoteBot] Unable to read config: ${error}`;
             console.error(errMsg);
             return errMsg;
         }
@@ -384,44 +394,45 @@ export class QuoteBot implements BotInterface {
         };
     }
 
-    static createButtonNext(): MessageButton {
-        return new MessageButton()
+    static createButtonNext(): ButtonBuilder {
+        return new ButtonBuilder()
             .setCustomId(QuoteBot.LIST_BTN_NEXT)
             .setLabel("Next Page")
-            .setStyle("PRIMARY");
+            .setStyle(ButtonStyle.Primary);
     }
 
-    static createButtonBack(): MessageButton {
-        return new MessageButton()
+    static createButtonBack(): ButtonBuilder {
+        return new ButtonBuilder()
             .setCustomId(QuoteBot.LIST_BTN_PREV)
             .setLabel("Previous Page")
-            .setStyle("PRIMARY");
+            .setStyle(ButtonStyle.Primary);
     }
 
-    static createPageSelect(listObj: ListStringObject): MessageSelectMenu {
-        const options: MessageSelectOptionData[] = [];
+    static createPageSelect(listObj: ListStringObject): SelectMenuBuilder {
+        const options: SelectMenuOptionBuilder[] = [];
         for (let pageNum = 0; pageNum < listObj.maxPages; pageNum++) {
             if (pageNum === listObj.currentPage) {
                 continue;
             }
 
-            options.push({
-                label: `Page ${pageNum + 1}`,
-                value: pageNum.toString()
-            });
+            options.push(
+                new SelectMenuOptionBuilder()
+                    .setLabel(`Page ${pageNum + 1}`)
+                    .setValue(pageNum.toString())
+            );
         }
 
-        return new MessageSelectMenu()
+        return new SelectMenuBuilder()
             .setCustomId(QuoteBot.LIST_SLCT_MENU_PAGE)
             .setPlaceholder(`Page ${listObj.currentPage + 1}`)
             .addOptions(options);
     }
 
-    static createListEmbed(page: QuotePage, listObj: ListStringObject): MessageEmbed {
+    static createListEmbed(page: QuotePage, listObj: ListStringObject): EmbedBuilder {
         let nameList = "";
         page.names.forEach(name => nameList += `• ${name}\n`);
 
-        return new MessageEmbed()
+        return new EmbedBuilder()
             .setTitle(QuoteBot.serializeListString(listObj))
             .setColor(0x8C8F91)
             .setDescription(nameList);
@@ -439,8 +450,8 @@ export class QuoteBot implements BotInterface {
         const btnPrev = QuoteBot.createButtonBack().setDisabled(listObj.currentPage <= 0);
         const btnNext = QuoteBot.createButtonNext().setDisabled(listObj.currentPage + 1 >= maxPages);
         const pageSelect = QuoteBot.createPageSelect(listObj);
-        const rowSelect = new MessageActionRow().addComponents(pageSelect);
-        const rowBtns = new MessageActionRow().addComponents(btnPrev, btnNext);
+        const rowSelect = new ActionRowBuilder().addComponents(pageSelect) as ActionRowBuilder<SelectMenuBuilder>;
+        const rowBtns = new ActionRowBuilder().addComponents(btnPrev, btnNext) as ActionRowBuilder<ButtonBuilder>;
         return {
             embeds: [embed],
             components: [rowSelect, rowBtns]
@@ -462,7 +473,7 @@ export class QuoteBot implements BotInterface {
 
         if (interaction.deferred) {
             await interaction.editReply({ embeds: [
-                new MessageEmbed()
+                new EmbedBuilder()
                     .setTitle("Error")
                     .setDescription(description)
                     .setColor(0xFF0000)
@@ -471,7 +482,7 @@ export class QuoteBot implements BotInterface {
         }
 
         await interaction.reply({ embeds: [
-            new MessageEmbed()
+            new EmbedBuilder()
                 .setTitle("Error")
                 .setDescription(description)
                 .setColor(0xFF0000)
