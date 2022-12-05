@@ -1,9 +1,11 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { CommandInteraction, Client, ModalSubmitInteraction, Message, ButtonInteraction, MessageComponentInteraction,
-    SelectMenuInteraction, WebhookEditMessageOptions, GatewayIntentBits, ChatInputCommandInteraction, EmbedBuilder,
-    ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, SelectMenuBuilder, SelectMenuOptionBuilder } from "discord.js";
+    WebhookEditMessageOptions, GatewayIntentBits, ChatInputCommandInteraction, EmbedBuilder,
+    ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder,
+    SelectMenuOptionBuilder, StringSelectMenuBuilder, StringSelectMenuInteraction } from "discord.js";
 import { BotInterface } from "../../BotInterface";
-import { readYamlConfig } from "../../ConfigUtils";
+import { readYamlConfig } from "../../utils/ConfigUtils";
 import { QuoteConfig } from "./QuoteConfig";
 import { MongoQuote, QuotePage } from "./MongoQuote";
 
@@ -119,7 +121,7 @@ export class QuoteBot implements BotInterface {
                 await this.handleButtonClick(interaction);
             }
 
-            if (interaction.isSelectMenu()) {
+            if (interaction.isStringSelectMenu()) {
                 console.log(`[QuoteBot] Got select menu interaction: ${interaction.customId}`);
                 await this.handleSelectMenu(interaction);
             }
@@ -292,7 +294,7 @@ export class QuoteBot implements BotInterface {
         }
     }
 
-    async handleSelectMenu(interaction: SelectMenuInteraction): Promise<void> {
+    async handleSelectMenu(interaction: StringSelectMenuInteraction): Promise<void> {
         const id = interaction.customId;
         if (id !== QuoteBot.LIST_SLCT_MENU_PAGE) {
             return;
@@ -311,7 +313,7 @@ export class QuoteBot implements BotInterface {
         }
     }
 
-    async goToPage(interaction: ButtonInteraction | SelectMenuInteraction, newPage: number): Promise<void> {
+    async goToPage(interaction: ButtonInteraction | StringSelectMenuInteraction, newPage: number): Promise<void> {
         const guildId = interaction.guildId!;
         const maxPages = await MongoQuote.getMaxPages(guildId, QuoteBot.LIST_PER_PAGE);
 
@@ -408,7 +410,7 @@ export class QuoteBot implements BotInterface {
             .setStyle(ButtonStyle.Primary);
     }
 
-    static createPageSelect(listObj: ListStringObject): SelectMenuBuilder {
+    static createPageSelect(listObj: ListStringObject): StringSelectMenuBuilder {
         const options: SelectMenuOptionBuilder[] = [];
         for (let pageNum = 0; pageNum < listObj.maxPages; pageNum++) {
             if (pageNum === listObj.currentPage) {
@@ -422,7 +424,7 @@ export class QuoteBot implements BotInterface {
             );
         }
 
-        return new SelectMenuBuilder()
+        return new StringSelectMenuBuilder()
             .setCustomId(QuoteBot.LIST_SLCT_MENU_PAGE)
             .setPlaceholder(`Page ${listObj.currentPage + 1}`)
             .addOptions(options);
@@ -450,7 +452,7 @@ export class QuoteBot implements BotInterface {
         const btnPrev = QuoteBot.createButtonBack().setDisabled(listObj.currentPage <= 0);
         const btnNext = QuoteBot.createButtonNext().setDisabled(listObj.currentPage + 1 >= maxPages);
         const pageSelect = QuoteBot.createPageSelect(listObj);
-        const rowSelect = new ActionRowBuilder().addComponents(pageSelect) as ActionRowBuilder<SelectMenuBuilder>;
+        const rowSelect = new ActionRowBuilder().addComponents(pageSelect) as ActionRowBuilder<StringSelectMenuBuilder>;
         const rowBtns = new ActionRowBuilder().addComponents(btnPrev, btnNext) as ActionRowBuilder<ButtonBuilder>;
         return {
             embeds: [embed],
