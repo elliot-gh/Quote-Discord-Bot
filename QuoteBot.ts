@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion */
 import { SlashCommandBuilder } from "@discordjs/builders";
 import { CommandInteraction, Client, ModalSubmitInteraction, Message, ButtonInteraction, MessageComponentInteraction,
-    WebhookEditMessageOptions, GatewayIntentBits, ChatInputCommandInteraction, EmbedBuilder,
+    GatewayIntentBits, ChatInputCommandInteraction, EmbedBuilder,
     ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder,
-    SelectMenuOptionBuilder, StringSelectMenuBuilder, StringSelectMenuInteraction } from "discord.js";
+    StringSelectMenuBuilder, StringSelectMenuInteraction, StringSelectMenuOptionBuilder, MessageEditOptions } from "discord.js";
 import { BotInterface } from "../../BotInterface";
 import { readYamlConfig } from "../../utils/ConfigUtils";
 import { QuoteConfig } from "./QuoteConfig";
@@ -411,14 +411,14 @@ export class QuoteBot implements BotInterface {
     }
 
     static createPageSelect(listObj: ListStringObject): StringSelectMenuBuilder {
-        const options: SelectMenuOptionBuilder[] = [];
+        const options: StringSelectMenuOptionBuilder[] = [];
         for (let pageNum = 0; pageNum < listObj.maxPages; pageNum++) {
             if (pageNum === listObj.currentPage) {
                 continue;
             }
 
             options.push(
-                new SelectMenuOptionBuilder()
+                new StringSelectMenuOptionBuilder()
                     .setLabel(`Page ${pageNum + 1}`)
                     .setValue(pageNum.toString())
             );
@@ -440,7 +440,7 @@ export class QuoteBot implements BotInterface {
             .setDescription(nameList);
     }
 
-    static async createListReply(guildId: string, currentPage: number): Promise<WebhookEditMessageOptions> {
+    static async createListReply(guildId: string, currentPage: number): Promise<MessageEditOptions> {
         const maxPages = await MongoQuote.getMaxPages(guildId, QuoteBot.LIST_PER_PAGE);
         const page = await MongoQuote.getQuotePage(guildId, currentPage, QuoteBot.LIST_PER_PAGE);
         const listObj: ListStringObject = {
