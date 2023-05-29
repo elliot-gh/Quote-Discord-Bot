@@ -4,17 +4,17 @@ import { CommandInteraction, Client, ModalSubmitInteraction, Message, ButtonInte
     GatewayIntentBits, ChatInputCommandInteraction, EmbedBuilder,
     ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder,
     StringSelectMenuBuilder, StringSelectMenuInteraction, StringSelectMenuOptionBuilder, MessageEditOptions } from "discord.js";
-import { BotInterface } from "../../BotInterface";
-import { readYamlConfig } from "../../utils/ConfigUtils";
 import { QuoteConfig } from "./QuoteConfig";
 import { MongoQuote, QuotePage } from "./MongoQuote";
+import { BotWithConfig } from "../../BotWithConfig";
+import { BotInterface } from "../../BotInterface";
 
 type ListStringObject = {
     currentPage: number,
     maxPages: number
 }
 
-export class QuoteBot implements BotInterface {
+export class QuoteBot extends BotWithConfig implements BotInterface {
     private static readonly SUBCMD_GET = "get";
     private static readonly SUBCMD_GET_OPT = "name";
     private static readonly SUBCMD_CREATE = "create";
@@ -32,7 +32,7 @@ export class QuoteBot implements BotInterface {
     private static readonly LIST_SLCT_MENU_PAGE = "selectPage";
 
     private static mongoInit = false;
-    private static config: QuoteConfig;
+    private readonly config: QuoteConfig;
 
     intents: GatewayIntentBits[];
     commands: [SlashCommandBuilder];
@@ -40,10 +40,13 @@ export class QuoteBot implements BotInterface {
     private slashQuote: SlashCommandBuilder;
 
     constructor() {
+        super("QuoteBot", import.meta);
+        this.config = this.readYamlConfig<QuoteConfig>("config.yaml");
         this.intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
         this.slashQuote = new SlashCommandBuilder()
             .setName("quote")
             .setDescription("Create, get, or list saved quotes.")
+            .setDMPermission(false)
             .addSubcommand(subcommand =>
                 subcommand
                     .setName(QuoteBot.SUBCMD_CREATE)
@@ -84,7 +87,7 @@ export class QuoteBot implements BotInterface {
             return;
         }
 
-        console.log(`[QuoteBot]: Got interaction: ${interaction}`);
+        this.logger.info(`Got interaction: ${interaction}`);
         try {
             switch(interaction.options.getSubcommand()) {
                 case QuoteBot.SUBCMD_CREATE:
@@ -101,7 +104,7 @@ export class QuoteBot implements BotInterface {
                     break;
             }
         } catch (error) {
-            console.error(`[QuoteBot] Uncaught error in processSlashComand(): ${error}`);
+            this.logger.error(`Uncaught error in processSlashComand(): ${error}`);
         }
     }
 
@@ -112,22 +115,22 @@ export class QuoteBot implements BotInterface {
             }
 
             if (interaction.isModalSubmit()) {
-                console.log(`[QuoteBot] Got modal submission: ${interaction.customId}`);
+                this.logger.info(`Got modal submission: ${interaction.customId}`);
                 await this.handleCreateModalSubmit(interaction);
             }
 
             if (interaction.isButton()) {
-                console.log(`[QuoteBot] Got button click: ${interaction.customId}`);
+                this.logger.info(`Got button click: ${interaction.customId}`);
                 await this.handleButtonClick(interaction);
             }
 
             if (interaction.isStringSelectMenu()) {
-                console.log(`[QuoteBot] Got select menu interaction: ${interaction.customId}`);
+                this.logger.info(`Got select menu interaction: ${interaction.customId}`);
                 await this.handleSelectMenu(interaction);
             }
         });
 
-        if (QuoteBot.config.getNoPrefix) {
+        if (this.config.getNoPrefix) {
             client.on("messageCreate", async (message) => {
                 if (message.author.id === client.user?.id) {
                     return;
@@ -138,7 +141,7 @@ export class QuoteBot implements BotInterface {
         }
     }
 
-    async handleSlashCreate(interaction: ChatInputCommandInteraction): Promise<void> {
+    private async handleSlashCreate(interaction: ChatInputCommandInteraction): Promise<void> {
         const modal = new ModalBuilder()
             .setCustomId(QuoteBot.CREATE_MODAL)
             .setTitle("Create a Quote");
@@ -161,9 +164,9 @@ export class QuoteBot implements BotInterface {
         await interaction.showModal(modal);
     }
 
-    async handleSlashGet(interaction: ChatInputCommandInteraction): Promise<void> {
+    private async handleSlashGet(interaction: ChatInputCommandInteraction): Promise<void> {
         const name = interaction.options.getString(QuoteBot.SUBCMD_DEL_OPT, true).trim();
-        console.log(`[QuoteBot] Got get command for name ${name}`);
+        this.logger.info(`Got get command for name ${name}`);
 
         const validName = QuoteBot.validateName(name);
         if (validName !== null) {
@@ -173,7 +176,7 @@ export class QuoteBot implements BotInterface {
 
         try {
             await interaction.deferReply();
-            const quote = await MongoQuote.getQuote(interaction.guildId!, name, QuoteBot.config.caseSensitive);
+            const quote = await MongoQuote.getQuote(interaction.guildId!, name, this.config.caseSensitive);
             if (quote === null) {
                 await this.sendErrorMessage(interaction, `Could not get quote with name \`${name}\`. It does not exist.`);
                 return;
@@ -181,14 +184,14 @@ export class QuoteBot implements BotInterface {
 
             await interaction.editReply(quote);
         } catch (error) {
-            console.error(`[QuoteBot] Error while getting quote with name ${name}: ${error}`);
+            this.logger.error(`Error while getting quote with name ${name}: ${error}`);
             await this.sendErrorMessage(interaction, error);
         }
     }
 
-    async handleSlashDelete(interaction: ChatInputCommandInteraction): Promise<void> {
+    private async handleSlashDelete(interaction: ChatInputCommandInteraction): Promise<void> {
         const name = interaction.options.getString(QuoteBot.SUBCMD_DEL_OPT, true).trim();
-        console.log(`[QuoteBot] Got delete command for name ${name}`);
+        this.logger.info(`Got delete command for name ${name}`);
 
         const validName = QuoteBot.validateName(name);
         if (validName !== null) {
@@ -198,7 +201,7 @@ export class QuoteBot implements BotInterface {
 
         try {
             await interaction.deferReply();
-            const deleted = await MongoQuote.deleteQuote(interaction.guildId!, name, QuoteBot.config.caseSensitive);
+            const deleted = await MongoQuote.deleteQuote(interaction.guildId!, name, this.config.caseSensitive);
             if (!deleted) {
                 await this.sendErrorMessage(interaction, `Could not delete quote with name \`${name}\`. It does not exist.`);
                 return;
@@ -211,50 +214,50 @@ export class QuoteBot implements BotInterface {
                     .setColor(0x00FF00)
             ]});
         } catch (error) {
-            console.error(`[QuoteBot] Error while deleting quote with name ${name}: ${error}`);
+            this.logger.error(`Error while deleting quote with name ${name}: ${error}`);
             await this.sendErrorMessage(interaction, error);
         }
     }
 
-    async handleSlashList(interaction: CommandInteraction): Promise<void> {
-        console.log("[QuoteBot] Got /quote list command");
+    private async handleSlashList(interaction: CommandInteraction): Promise<void> {
+        this.logger.info("Got /quote list command");
         try {
             await interaction.deferReply();
             const replyObj = await QuoteBot.createListReply(interaction.guildId!, 0);
 
             await interaction.editReply(replyObj);
         } catch (error) {
-            console.error(`[QuoteBot] Error handling list command:\n${error}`);
+            this.logger.error(`Error handling list command:\n${error}`);
             await this.sendErrorMessage(interaction, error);
         }
     }
 
-    async handleCreateModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+    private async handleCreateModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
         if (interaction.customId !== QuoteBot.CREATE_MODAL) {
             return;
         }
 
         const name = interaction.fields.getTextInputValue(QuoteBot.CREATE_MODAL_NAME).trim();
         const quote = interaction.fields.getTextInputValue(QuoteBot.CREATE_MODAL_QUOTE).trimEnd();
-        console.log(`[QuoteBot] Got create modal submission with quote name ${name} and quote ${quote}`);
+        this.logger.info(`Got create modal submission with quote name ${name} and quote ${quote}`);
 
         try {
             const nameValid = QuoteBot.validateName(name);
             if (nameValid !== null) {
-                console.error(`[QuoteBot] Quote name ${name} failed validation: ${nameValid}`);
+                this.logger.error(`Quote name ${name} failed validation: ${nameValid}`);
                 await this.sendErrorMessage(interaction, nameValid);
                 return;
             }
 
             const quoteValid = QuoteBot.validateQuote(quote);
             if (quoteValid !== null) {
-                console.error(`[QuoteBot] Quote ${quote} failed validation: ${quoteValid}`);
+                this.logger.error(`Quote ${quote} failed validation: ${quoteValid}`);
                 await this.sendErrorMessage(interaction, quoteValid);
                 return;
             }
 
             await interaction.deferReply();
-            await MongoQuote.createQuote(interaction.guildId!, name, quote, QuoteBot.config.caseSensitive);
+            await MongoQuote.createQuote(interaction.guildId!, name, quote, this.config.caseSensitive);
 
             await interaction.editReply({ embeds: [
                 new EmbedBuilder()
@@ -263,12 +266,12 @@ export class QuoteBot implements BotInterface {
                     .setColor(0x00FF00)
             ]});
         } catch (error) {
-            console.error(`[QuoteBot] Error while creating quote with name ${name} and quote ${quote}: ${error}`);
+            this.logger.error(`Error while creating quote with name ${name} and quote ${quote}: ${error}`);
             await this.sendErrorMessage(interaction, error);
         }
     }
 
-    async handleButtonClick(interaction: ButtonInteraction): Promise<void> {
+    private async handleButtonClick(interaction: ButtonInteraction): Promise<void> {
         const id = interaction.customId;
         if (id !== QuoteBot.LIST_BTN_PREV && id !== QuoteBot.LIST_BTN_NEXT) {
             return;
@@ -289,12 +292,12 @@ export class QuoteBot implements BotInterface {
 
             await this.goToPage(interaction, newPage);
         } catch (error) {
-            console.error(`[QuoteBot] Error in handleButtonClick(): ${error}`);
+            this.logger.error(`Error in handleButtonClick(): ${error}`);
             await this.sendErrorMessage(interaction, error);
         }
     }
 
-    async handleSelectMenu(interaction: StringSelectMenuInteraction): Promise<void> {
+    private async handleSelectMenu(interaction: StringSelectMenuInteraction): Promise<void> {
         const id = interaction.customId;
         if (id !== QuoteBot.LIST_SLCT_MENU_PAGE) {
             return;
@@ -308,20 +311,20 @@ export class QuoteBot implements BotInterface {
 
             await this.goToPage(interaction, newPage);
         } catch (error) {
-            console.error(`[QuoteBot] Error in handleSelectMenu(): ${error}`);
+            this.logger.error(`Error in handleSelectMenu(): ${error}`);
             await this.sendErrorMessage(interaction, error);
         }
     }
 
-    async goToPage(interaction: ButtonInteraction | StringSelectMenuInteraction, newPage: number): Promise<void> {
+    private async goToPage(interaction: ButtonInteraction | StringSelectMenuInteraction, newPage: number): Promise<void> {
         const guildId = interaction.guildId!;
         const maxPages = await MongoQuote.getMaxPages(guildId, QuoteBot.LIST_PER_PAGE);
 
         if (newPage < 0) {
-            console.error(`[QuoteBot] Got newPage ${newPage}, setting to 0.`);
+            this.logger.error(`Got newPage ${newPage}, setting to 0.`);
             newPage = 0;
         } else if (newPage >= maxPages) {
-            console.error(`[QuoteBot] Got newPage ${newPage} over maxPages ${maxPages}, setting to maxPages.`);
+            this.logger.error(`Got newPage ${newPage} over maxPages ${maxPages}, setting to maxPages.`);
             newPage = maxPages - 1;
         }
 
@@ -329,43 +332,42 @@ export class QuoteBot implements BotInterface {
         await interaction.editReply(replyObj);
     }
 
-    async handleGetNoPrefix(message: Message): Promise<void> {
+    private async handleGetNoPrefix(message: Message): Promise<void> {
         const content = message.content.trim();
         try {
             if (content.includes(" ")) {
                 return;
             }
 
-            const quote = await MongoQuote.getQuote(message.guildId!, content, QuoteBot.config.caseSensitive);
+            const quote = await MongoQuote.getQuote(message.guildId!, content, this.config.caseSensitive);
             if (quote === null) {
                 return;
             }
 
-            console.log(`[QuoteBot] Got one word quote with name ${content}:\n\t${quote}`);
+            this.logger.info(`Got one word quote with name ${content}:\n\t${quote}`);
             await message.channel.send(quote);
         } catch (error) {
-            console.error(`[QuoteBot] Error in handleGetNoPrefix() with message ${content}:\n${error}`);
+            this.logger.error(`Error in handleGetNoPrefix() with message ${content}:\n${error}`);
         }
     }
 
-    async init(): Promise<string | null> {
+    async preInit(): Promise<string | null> {
         if (QuoteBot.mongoInit) {
             return null;
         }
 
         try {
-            QuoteBot.config = await readYamlConfig<QuoteConfig>(import.meta, "config.yaml");
-            await MongoQuote.init(QuoteBot.config);
+            await MongoQuote.init(this.config);
         } catch (error) {
-            const errMsg = `[QuoteBot] Unable to read config: ${error}`;
-            console.error(errMsg);
+            const errMsg = `Unable to read config: ${error}`;
+            this.logger.error(errMsg);
             return errMsg;
         }
 
         return null;
     }
 
-    static validateName(name: string): string | null {
+    private static validateName(name: string): string | null {
         if (name.includes(" ")) {
             return "Name has a space in it. Spaces are not allowed in quote names.";
         } else if (name.length < 1 || name.length > QuoteBot.NAME_MAX_CHARS) {
@@ -375,7 +377,7 @@ export class QuoteBot implements BotInterface {
         return null;
     }
 
-    static validateQuote(quote: string): string | null {
+    private static validateQuote(quote: string): string | null {
         if (quote.length < 1 || quote.length > QuoteBot.QUOTE_MAX_CHARS) {
             return `Quote is too long. Quotes msut be between 1 and ${QuoteBot.NAME_MAX_CHARS} characters.`;
         }
@@ -383,11 +385,11 @@ export class QuoteBot implements BotInterface {
         return null;
     }
 
-    static serializeListString(obj: ListStringObject): string {
+    private static serializeListString(obj: ListStringObject): string {
         return `Page ${obj.currentPage + 1} of ${obj.maxPages}`;
     }
 
-    static deserializeListString(str: string): ListStringObject {
+    private static deserializeListString(str: string): ListStringObject {
         const currentPageStr = str.substring(5, str.indexOf(" of "));
         const maxPageStr = str.substring(str.indexOf("f ") + 2);
         return {
@@ -396,31 +398,28 @@ export class QuoteBot implements BotInterface {
         };
     }
 
-    static createButtonNext(): ButtonBuilder {
+    private static createButtonNext(): ButtonBuilder {
         return new ButtonBuilder()
             .setCustomId(QuoteBot.LIST_BTN_NEXT)
             .setLabel("Next Page")
             .setStyle(ButtonStyle.Primary);
     }
 
-    static createButtonBack(): ButtonBuilder {
+    private static createButtonBack(): ButtonBuilder {
         return new ButtonBuilder()
             .setCustomId(QuoteBot.LIST_BTN_PREV)
             .setLabel("Previous Page")
             .setStyle(ButtonStyle.Primary);
     }
 
-    static createPageSelect(listObj: ListStringObject): StringSelectMenuBuilder {
+    private static createPageSelect(listObj: ListStringObject): StringSelectMenuBuilder {
         const options: StringSelectMenuOptionBuilder[] = [];
         for (let pageNum = 0; pageNum < listObj.maxPages; pageNum++) {
-            if (pageNum === listObj.currentPage) {
-                continue;
-            }
-
             options.push(
                 new StringSelectMenuOptionBuilder()
                     .setLabel(`Page ${pageNum + 1}`)
                     .setValue(pageNum.toString())
+                    .setDefault(pageNum === listObj.currentPage)
             );
         }
 
@@ -430,7 +429,7 @@ export class QuoteBot implements BotInterface {
             .addOptions(options);
     }
 
-    static createListEmbed(page: QuotePage, listObj: ListStringObject): EmbedBuilder {
+    private static createListEmbed(page: QuotePage, listObj: ListStringObject): EmbedBuilder {
         let nameList = "";
         page.names.forEach(name => nameList += `• ${name}\n`);
 
@@ -440,7 +439,17 @@ export class QuoteBot implements BotInterface {
             .setDescription(nameList);
     }
 
-    static async createListReply(guildId: string, currentPage: number): Promise<MessageEditOptions> {
+    private static async createListReply(guildId: string, currentPage: number): Promise<MessageEditOptions> {
+        const quoteCount = await MongoQuote.getQuoteCount(guildId);
+        if (quoteCount === 0) {
+            return {
+                embeds: [new EmbedBuilder()
+                    .setTitle("Error")
+                    .setDescription("No quotes exist in this server.")
+                    .setColor(0xFF0000)]
+            };
+        }
+
         const maxPages = await MongoQuote.getMaxPages(guildId, QuoteBot.LIST_PER_PAGE);
         const page = await MongoQuote.getQuotePage(guildId, currentPage, QuoteBot.LIST_PER_PAGE);
         const listObj: ListStringObject = {
@@ -465,7 +474,7 @@ export class QuoteBot implements BotInterface {
      * @param interaction The discord.js CommandInteraction
      * @param error The error. Could be typeof Error, string, or null.
      */
-    async sendErrorMessage(interaction: CommandInteraction | MessageComponentInteraction | ModalSubmitInteraction, error: unknown = null): Promise<void> {
+    private async sendErrorMessage(interaction: CommandInteraction | MessageComponentInteraction | ModalSubmitInteraction, error: unknown = null): Promise<void> {
         let description = "";
         if (error instanceof Error) {
             description = error.message;
@@ -489,5 +498,13 @@ export class QuoteBot implements BotInterface {
                 .setDescription(description)
                 .setColor(0xFF0000)
         ]});
+    }
+
+    getIntents(): GatewayIntentBits[] {
+        return this.intents;
+    }
+
+    getSlashCommands(): (SlashCommandBuilder)[] {
+        return this.commands;
     }
 }
