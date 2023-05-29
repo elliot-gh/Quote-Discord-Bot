@@ -2,6 +2,7 @@ import { format } from "node:util";
 import mongoose, { Connection, FilterQuery } from "mongoose";
 const { Schema } = mongoose;
 import { QuoteConfig } from "./QuoteConfig";
+import { createLogger } from "../../utils/Logger";
 
 interface IQuote {
     name: string,
@@ -18,6 +19,7 @@ export type QuotePage = {
  * Singleton responsible for working with MongoDB and quotes.
  */
 export class MongoQuote {
+    private static readonly logger = createLogger("MongoQuote");
     private static connection: Connection;
     private static ready = false;
     private static readonly schema = new Schema({
@@ -49,7 +51,7 @@ export class MongoQuote {
         }
 
         const quote = await guildQuotes.findOne<IQuote>(queryObj);
-        return quote !== null ? quote.quote : null;
+        return quote?.quote ?? null;
     }
 
     /**
@@ -155,6 +157,22 @@ export class MongoQuote {
     }
 
     /**
+     * Gets the amount of quotes in a guild.
+     * @param guildId discord.js guild id
+     * @returns number of quotes
+     */
+    static async getQuoteCount(guildId: string): Promise<number> {
+        if (!this.ready) {
+            throw new Error("MongoDB connection not ready.");
+        }
+
+        const guildQuotes = this.connection.model<IQuote>(guildId, MongoQuote.schema);
+        const count = await guildQuotes.count();
+
+        return count;
+    }
+
+    /**
      * Init this class.
      * @param config The QuoteConfig object containing mongodb connection details.
      */
@@ -164,7 +182,7 @@ export class MongoQuote {
                 return;
             }
 
-            console.log(`[MongoQuote] Trying to connect to MongoDB URL ${config.mongoDb.url}...`);
+            this.logger.info(`Trying to connect to MongoDB URL ${config.mongoDb.url}...`);
             const fullUrl = format(config.mongoDb.url,
                 encodeURIComponent(config.mongoDb.user),
                 encodeURIComponent(config.mongoDb.password));
@@ -173,10 +191,10 @@ export class MongoQuote {
             }).asPromise();
 
             await this.connection.db.admin().ping();
-            console.log(`[MongoQuote] Connected to MongoDB URL ${config.mongoDb.url}.`);
+            this.logger.info(`Connected to MongoDB URL ${config.mongoDb.url}.`);
             this.ready = true;
         } catch (error) {
-            console.error(`[MongoQuote] Ran into error in getInstance(): ${error}`);
+            this.logger.error(`Ran into error in getInstance(): ${error}`);
             if (this.connection !== undefined) {
                 await this.connection.close();
             }
